@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EdgeAI</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface-hover: #242424;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --text-muted: #888;
+      --accent: #6366f1;       /* indigo-500 */
+      --accent-hover: #818cf8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --radius: 8px;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 380px;
+      min-height: 480px;
+      max-height: 600px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: -0.3px;
+    }
+
+    .logo-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    .logo-dot.loading { background: var(--yellow); }
+    .logo-dot.error { background: var(--red); animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    /* ── Tabs ────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 8px 4px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Main Content Area ───────────────────────────────────────── */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .pane { display: none; flex-direction: column; height: 100%; }
+    .pane.active { display: flex; }
+
+    /* ── Chat Pane ───────────────────────────────────────────────── */
+    #pane-chat {
+      display: none;
+      flex-direction: column;
+    }
+    #pane-chat.active { display: flex; }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message {
+      max-width: 95%;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      line-height: 1.5;
+      font-size: 13px;
+      animation: msgIn 0.15s ease-out;
+    }
+
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: var(--accent);
+      color: white;
+      border-bottom-right-radius: 2px;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: var(--surface);
+      border-bottom-left-radius: 2px;
+    }
+
+    .message.system-notice {
+      align-self: center;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    .message-source {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Input Bar ───────────────────────────────────────────────── */
+    .input-bar {
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+
+    .input-bar textarea {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      padding: 8px 10px;
+      resize: none;
+      outline: none;
+      line-height: 1.4;
+      max-height: 80px;
+      min-height: 36px;
+      transition: border-color 0.15s;
+    }
+
+    .input-bar textarea:focus { border-color: var(--accent); }
+    .input-bar textarea::placeholder { color: var(--text-muted); }
+
+    .btn-icon {
+      width: 34px;
+      height: 34px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+
+    .btn-icon:hover { background: var(--surface-hover); color: var(--text); }
+    .btn-icon.active { background: var(--accent); border-color: var(--accent); color: white; }
+    .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-send {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    .btn-send:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+    /* ── Import Pane ─────────────────────────────────────────────── */
+    .import-section {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .import-section h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .import-btn {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.15s, border-color 0.15s;
+      margin-bottom: 6px;
+    }
+
+    .import-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+    .import-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .import-btn .icon { font-size: 16px; }
+    .import-btn .label { flex: 1; text-align: left; }
+    .import-btn .badge {
+      font-size: 11px;
+      background: var(--accent);
+      color: white;
+      padding: 1px 6px;
+      border-radius: 20px;
+    }
+
+    /* ── Import progress strip ───────────────────────────────────── */
+    .import-progress {
+      margin-top: 4px;
+      height: 2px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      display: none;
+    }
+    .import-progress.active { display: block; }
+    .import-progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.4s;
+      width: 0%;
+    }
+    @keyframes progressIndeterminate {
+      0%   { transform: translateX(-100%); width: 60%; }
+      100% { transform: translateX(200%);  width: 60%; }
+    }
+    .import-progress.indeterminate .import-progress-fill {
+      animation: progressIndeterminate 1.2s ease-in-out infinite;
+      width: 60% !important;
+    }
+
+    /* ── Documents Pane ──────────────────────────────────────────── */
+    .docs-toolbar {
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .docs-count {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .doc-item {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.1s;
+    }
+
+    .doc-item:hover { background: var(--surface-hover); }
+
+    .doc-source-icon {
+      font-size: 16px;
+      flex-shrink: 0;
+      width: 22px;
+      text-align: center;
+    }
+
+    .doc-info { flex: 1; min-width: 0; }
+    .doc-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    .doc-actions {
+      display: flex;
+      gap: 2px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      flex-shrink: 0;
+    }
+
+    .doc-item:hover .doc-actions { opacity: 1; }
+
+    .doc-action-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 5px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .doc-action-btn:hover { background: var(--surface); }
+    .doc-action-btn.preview-btn:hover { color: var(--accent); }
+    .doc-action-btn.delete-btn:hover { color: var(--red); }
+
+    /* ── Trust Panel ─────────────────────────────────────────────── */
+    .trust-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .trust-label { color: var(--text-muted); font-size: 13px; }
+    .trust-value { font-size: 13px; font-weight: 500; }
+    .trust-value.green { color: var(--green); }
+    .trust-value.yellow { color: var(--yellow); }
+
+    /* ── Model download progress ─────────────────────────────────── */
+    .model-status {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .model-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .model-status-label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .model-status-badge {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: var(--surface-hover);
+      color: var(--text-muted);
+    }
+
+    .model-status-badge.done {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+    }
+
+    .progress-bar {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+
+    /* ── Utility ─────────────────────────────────────────────────── */
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .empty-state p { margin-top: 8px; line-height: 1.6; }
+
+    .status-bar {
+      padding: 6px 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    /* ── Preview Modal ───────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 16px;
+      animation: fadeIn 0.1s ease-out;
+    }
+
+    .modal-backdrop.hidden { display: none; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      width: 100%;
+      max-height: 480px;
+      display: flex;
+      flex-direction: column;
+      animation: slideUp 0.15s ease-out;
+      overflow: hidden;
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .modal-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .modal-source-icon { font-size: 16px; }
+
+    .modal-title-group { flex: 1; min-width: 0; }
+
+    .modal-title {
+      font-size: 13px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .modal-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s;
+      flex-shrink: 0;
+    }
+
+    .modal-close:hover { color: var(--text); }
+
+    .modal-body {
+      padding: 14px;
+      overflow-y: auto;
+      flex: 1;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .modal-footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .modal-footer-note {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .modal-footer-btn {
+      font-size: 12px;
+      padding: 5px 10px;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+
+    .modal-footer-btn:hover {
+      background: var(--surface-hover);
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    .modal-footer-btn.danger:hover {
+      border-color: var(--red);
+      color: var(--red);
+    }
+  </style>
+</head>
+<body>
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-dot loading" id="status-dot"></div>
+      EdgeAI
+    </div>
+    <div class="header-actions">
+      <button class="btn-icon" id="btn-settings" title="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Tabs ────────────────────────────────────────────────────────── -->
+  <div class="tabs">
+    <button class="tab active" data-tab="chat">Chat</button>
+    <button class="tab" data-tab="import">Import</button>
+    <button class="tab" data-tab="docs">Documents</button>
+    <button class="tab" data-tab="trust">Privacy</button>
+  </div>
+
+  <!-- ── Content ─────────────────────────────────────────────────────── -->
+  <div class="content">
+
+    <!-- Chat Pane -->
+    <div class="pane active" id="pane-chat">
+      <!-- Model loading state (shown before both models are ready) -->
+      <div class="model-status" id="model-loading-state">
+        <div class="model-status-row">
+          <span class="model-status-label" id="model-status-text">Initializing…</span>
+          <span class="model-status-badge" id="embeddings-badge">Embeddings</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="model-progress-fill" style="width:0%"></div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:2px;">
+          <span style="font-size:11px; color:var(--text-muted);">First run: ~35MB embeddings + 2.3GB LLM (cached forever)</span>
+          <span style="font-size:12px; font-weight:600;" id="model-progress-pct"></span>
+        </div>
+      </div>
+
+      <!-- Messages list -->
+      <div class="chat-messages" id="chat-messages">
+        <div class="message system-notice" id="welcome-msg">
+          Ask me anything. I know your documents.
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Pane -->
+    <div class="pane" id="pane-import">
+      <div class="import-section">
+        <h3>Local Files</h3>
+        <button class="import-btn" id="btn-import-obsidian">
+          <span class="icon">🗃️</span>
+          <span class="label">Obsidian Vault</span>
+          <span class="badge">Recommended</span>
+        </button>
+        <div class="import-progress" id="obsidian-progress"><div class="import-progress-fill"></div></div>
+        <button class="import-btn" id="btn-import-pdf">
+          <span class="icon">📄</span>
+          <span class="label">PDF Files</span>
+        </button>
+        <div class="import-progress" id="pdf-progress"><div class="import-progress-fill"></div></div>
+      </div>
+      <div class="import-section">
+        <h3>Browser</h3>
+        <button class="import-btn" id="btn-import-bookmarks">
+          <span class="icon">🔖</span>
+          <span class="label">Chrome Bookmarks</span>
+        </button>
+        <div class="import-progress" id="bookmarks-progress"><div class="import-progress-fill"></div></div>
+      </div>
+      <div class="import-section">
+        <h3>Coming Soon</h3>
+        <button class="import-btn" disabled>
+          <span class="icon">📝</span>
+          <span class="label">Notion</span>
+        </button>
+        <button class="import-btn" disabled>
+          <span class="icon">📂</span>
+          <span class="label">Google Drive</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Documents Pane -->
+    <div class="pane" id="pane-docs">
+      <div class="docs-toolbar" id="docs-toolbar" style="display:none;">
+        <span class="docs-count" id="docs-count">0 documents</span>
+        <button class="modal-footer-btn" id="btn-refresh-docs" style="font-size:11px; padding:3px 8px;">Refresh</button>
+      </div>
+      <div id="docs-list">
+        <div class="empty-state">
+          <div style="font-size:32px">📭</div>
+          <p>No documents indexed yet.<br>Import your Obsidian vault or PDFs to get started.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trust / Privacy Pane -->
+    <div class="pane" id="pane-trust">
+      <div class="trust-row">
+        <span class="trust-label">Network requests since install</span>
+        <span class="trust-value green" id="trust-network">0 bytes</span>
+      </div>
+      <div class="trust-row">
+        <span class="trust-label">Data sent to servers</span>
+        <span class="trust-value green">Zero</span>
+      </div>
+      <div class="trust-row">
+        <span class="trust-label">Model runs on</span>
+        <span class="trust-value green">Your device</span>
+      </div>
+      <div class="trust-row">
+        <span class="trust-label">Documents indexed</span>
+        <span class="trust-value" id="trust-docs">0</span>
+      </div>
+      <div class="trust-row">
+        <span class="trust-label">Total chunks in index</span>
+        <span class="trust-value" id="trust-chunks">0</span>
+      </div>
+      <div class="trust-row">
+        <span class="trust-label">Storage used</span>
+        <span class="trust-value" id="trust-storage">–</span>
+      </div>
+      <div class="trust-row">
+        <span class="trust-label">Source code</span>
+        <span class="trust-value">
+          <a href="https://github.com/edgeai/extension" target="_blank"
+             style="color:var(--accent); text-decoration:none;">
+            GitHub →
+          </a>
+        </span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Input Bar (chat only) ──────────────────────────────────────── -->
+  <div class="input-bar" id="input-bar">
+    <button class="btn-icon" id="btn-voice" title="Voice input (hold to record)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+        <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/>
+      </svg>
+    </button>
+    <textarea
+      id="chat-input"
+      placeholder="Ask anything… (Enter to send, Shift+Enter for newline)"
+      rows="1"
+    ></textarea>
+    <button class="btn-icon btn-send" id="btn-send" title="Send (Enter)" disabled>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- ── Status Bar ─────────────────────────────────────────────────── -->
+  <div class="status-bar">
+    <span id="status-text">Initializing…</span>
+    <span id="status-model">–</span>
+  </div>
+
+  <!-- ── Preview Modal ──────────────────────────────────────────────── -->
+  <div class="modal-backdrop hidden" id="preview-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="preview-modal-title">
+      <div class="modal-header">
+        <span class="modal-source-icon" id="preview-source-icon">📄</span>
+        <div class="modal-title-group">
+          <div class="modal-title" id="preview-modal-title">Document Preview</div>
+          <div class="modal-meta" id="preview-modal-meta"></div>
+        </div>
+        <button class="modal-close" id="preview-modal-close" aria-label="Close preview">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" id="preview-modal-body"></div>
+      <div class="modal-footer">
+        <span class="modal-footer-note" id="preview-modal-footer-note">Showing first 500 characters</span>
+        <button class="modal-footer-btn danger" id="preview-modal-delete">Delete document</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file input for PDF import -->
+  <input type="file" id="pdf-file-input" accept=".pdf" multiple style="display:none" />
+
+  <script type="module" src="./popup.ts"></script>
+</body>
+</html>
