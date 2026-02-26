@@ -322,6 +322,7 @@ btnVoice.addEventListener('click', async () => {
       // Mic permission denied — open a full tab where the browser permission
       // prompt works (extension popups close when the prompt steals focus).
       const isMicError = response.error.includes('denied') ||
+        response.error.includes('dismissed') ||
         response.error.includes('NotAllowed') ||
         response.error.includes('Microphone') ||
         response.error.includes('not allowed');

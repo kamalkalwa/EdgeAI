@@ -48,12 +48,11 @@ export class WhisperASR {
   async transcribe(audio: Float32Array): Promise<string> {
     if (!this.pipe) throw new Error('Whisper model not loaded');
 
-    // sampling_rate removed — not a valid option in transformers.js v3 ASR pipeline calls
+    // whisper-tiny.en is English-only — do NOT pass `language` or `task`
+    // (those options are only valid for multilingual models like whisper-tiny).
     const result = await this.pipe(audio, {
       chunk_length_s: 30,
       stride_length_s: 5,
-      language: 'english',
-      task: 'transcribe',
     });
 
     const text = Array.isArray(result) ? result[0]?.text : result?.text;

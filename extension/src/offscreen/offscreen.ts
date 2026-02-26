@@ -452,6 +452,21 @@ async function ensureVoiceModels(): Promise<{ asr: WhisperASR; vad: SileroVAD }>
 }
 
 async function handleVoiceStart(): Promise<void> {
+  // Pre-check microphone permission before attempting getUserMedia.
+  // Offscreen documents cannot show permission prompts, so if the state
+  // is not 'granted', we fail fast with a clear error that triggers the
+  // mic-grant page flow in the popup.
+  try {
+    const permStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+    console.log('[EdgeAI offscreen] Microphone permission state:', permStatus.state);
+    if (permStatus.state !== 'granted') {
+      throw new Error('Microphone access denied. Allow microphone in Chrome site settings for this extension.');
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Microphone access denied')) throw err;
+    console.warn('[EdgeAI offscreen] permissions.query failed, falling through:', err);
+  }
+
   const { asr, vad } = await ensureVoiceModels();
 
   if (!voiceSession) {
@@ -483,8 +498,14 @@ async function handleVoiceStart(): Promise<void> {
     const errName = err instanceof Error ? err.name : 'unknown';
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[EdgeAI offscreen] Voice start failed:', { name: errName, message: msg, raw: err });
-    // Specific error for mic permission denied
-    if (msg.includes('NotAllowedError') || msg.includes('Permission denied') || msg.includes('not allowed')) {
+    // Catch all mic permission errors including "Permission dismissed" from offscreen documents
+    if (
+      errName === 'NotAllowedError' ||
+      msg.includes('NotAllowedError') ||
+      msg.includes('Permission denied') ||
+      msg.includes('Permission dismissed') ||
+      msg.includes('not allowed')
+    ) {
       throw new Error('Microphone access denied. Allow microphone in Chrome site settings for this extension.');
     }
     throw err;
