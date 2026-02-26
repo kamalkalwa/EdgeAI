@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EdgeAI — Stealth Mode</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface-hover: #242424;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --text-muted: #888;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --radius: 8px;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .stealth-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      max-width: 400px;
+    }
+
+    .stealth-hero svg { color: var(--accent); }
+
+    .stealth-hero h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .stealth-hero p {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .btn-stealth {
+      margin-top: 8px;
+      padding: 12px 32px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn-stealth:hover { background: var(--accent-hover); transform: scale(1.02); }
+    .btn-stealth:active { transform: scale(0.98); }
+    .btn-stealth:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .status {
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .status.active { color: var(--accent); }
+    .status.error { color: #ef4444; }
+
+    .hint {
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--text-muted);
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="stealth-hero">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
+    <h1>Stealth Mode</h1>
+    <p>Opens EdgeAI in a Picture-in-Picture window that is <strong>invisible to screen sharing</strong>. You can see it, but anyone viewing your screen share cannot.</p>
+    <button class="btn-stealth" id="btn-launch">Launch Stealth Chat</button>
+    <div class="status" id="status"></div>
+    <div class="hint">Keep this tab open while using stealth chat. The PiP window will close if this tab is closed.</div>
+  </div>
+
+  <script type="module" src="./stealth.ts"></script>
+</body>
+</html>

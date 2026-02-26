@@ -60,15 +60,25 @@
   },
 
   "cross_origin_embedder_policy": {
-    "value": "require-corp"
+    "value": "credentialless"
   },
 
   "web_accessible_resources": [
     {
-      "resources": ["src/offscreen/offscreen.html", "chunks/*", "assets/*"],
+      "resources": ["src/offscreen/offscreen.html", "src/stealth/stealth.html", "src/mic-grant/mic-grant.html", "chunks/*", "assets/*", "ort/*"],
       "matches": ["<all_urls>"]
     }
   ],
+
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "Toggle EdgeAI panel"
+    }
+  },
 
   "minimum_chrome_version": "116"
 }

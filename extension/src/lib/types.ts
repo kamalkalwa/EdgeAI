@@ -25,8 +25,10 @@ export type MessageType =
   | 'VOICE_START'
   | 'VOICE_STOP'
   | 'VOICE_TRANSCRIPT'
+  | 'VOICE_ERROR'
   | 'GET_PAGE_CONTEXT'
-  | 'PAGE_CONTEXT';
+  | 'PAGE_CONTEXT'
+  | 'RETRY_INIT';
 
 export interface Message<T = unknown> {
   type: MessageType;

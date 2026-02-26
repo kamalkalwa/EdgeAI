@@ -19,6 +19,17 @@
       --yellow: #eab308;
       --radius: 8px;
       --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      --accent-glow-strong: rgba(99, 102, 241, 0.3);
+      --surface-elevated: #1e1e1e;
+      --border-subtle: #222;
+      --radius-lg: 12px;
+      --radius-pill: 20px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+      --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.15);
+      --transition-smooth: cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -36,6 +47,9 @@
       overflow: hidden;
     }
 
+    /* Stealth mode: fill the PiP iframe instead of fixed popup dimensions */
+    body.stealth { width: 100%; min-height: 100vh; max-height: 100vh; }
+
     /* ── Header ─────────────────────────────────────────────────── */
     .header {
       display: flex;
@@ -44,6 +58,9 @@
       padding: 12px 16px;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      background: linear-gradient(180deg, rgba(30,30,30,0.95) 0%, rgba(15,15,15,0.98) 100%);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
 
     .logo {
@@ -76,12 +93,49 @@
       gap: 4px;
     }
 
+    .header-actions .btn-header {
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s var(--transition-smooth);
+    }
+
+    .header-actions .btn-header:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
     /* ── Tabs ────────────────────────────────────────────────────── */
     .tabs {
       display: flex;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      position: relative;
     }
+
+    .tabs::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      height: 2px;
+      width: 25%;
+      background: var(--accent);
+      border-radius: 2px 2px 0 0;
+      transition: transform 0.3s var(--transition-smooth);
+    }
+
+    .tabs[data-active-index="0"]::after { transform: translateX(0%); }
+    .tabs[data-active-index="1"]::after { transform: translateX(100%); }
+    .tabs[data-active-index="2"]::after { transform: translateX(200%); }
+    .tabs[data-active-index="3"]::after { transform: translateX(300%); }
 
     .tab {
       flex: 1;
@@ -92,11 +146,11 @@
       color: var(--text-muted);
       font-size: 12px;
       cursor: pointer;
-      transition: color 0.15s, border-color 0.15s;
+      transition: color 0.25s var(--transition-smooth);
     }
 
     .tab:hover { color: var(--text); }
-    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab.active { color: var(--accent); border-bottom-color: transparent; }
 
     /* ── Main Content Area ───────────────────────────────────────── */
     .content {
@@ -107,33 +161,70 @@
       scrollbar-color: var(--border) transparent;
     }
 
-    .pane { display: none; flex-direction: column; height: 100%; }
-    .pane.active { display: flex; }
+    .content::-webkit-scrollbar { width: 5px; }
+    .content::-webkit-scrollbar-track { background: transparent; }
+    .content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .content::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
     /* ── Chat Pane ───────────────────────────────────────────────── */
     #pane-chat {
       display: none;
       flex-direction: column;
+      position: relative;
     }
     #pane-chat.active { display: flex; }
 
     .chat-messages {
       flex: 1;
       overflow-y: auto;
-      padding: 12px 16px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
+      scroll-behavior: smooth;
     }
 
-    .message {
-      max-width: 95%;
-      padding: 10px 12px;
-      border-radius: var(--radius);
-      line-height: 1.5;
-      font-size: 13px;
-      animation: msgIn 0.15s ease-out;
+    .chat-messages::-webkit-scrollbar { width: 5px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .chat-messages::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* Message wrapper for avatar layout */
+    .message-wrapper {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      animation: msgIn 0.2s ease-out;
     }
+
+    .message-wrapper.user { flex-direction: row-reverse; }
+
+    .message-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .message-avatar svg { width: 14px; height: 14px; color: var(--accent); }
+    .message-wrapper.user .message-avatar { display: none; }
+
+    .message {
+      max-width: 88%;
+      padding: 10px 14px;
+      border-radius: var(--radius-lg);
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    /* Standalone messages (system-notice) still animate individually */
+    .message.system-notice { animation: msgIn 0.2s ease-out; }
 
     @keyframes msgIn {
       from { opacity: 0; transform: translateY(4px); }
@@ -142,23 +233,31 @@
 
     .message.user {
       align-self: flex-end;
-      background: var(--accent);
+      background: linear-gradient(135deg, var(--accent) 0%, #5558e6 100%);
       color: white;
-      border-bottom-right-radius: 2px;
+      border-bottom-right-radius: 4px;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
     }
 
     .message.assistant {
       align-self: flex-start;
-      background: var(--surface);
-      border-bottom-left-radius: 2px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-bottom-left-radius: 4px;
     }
 
     .message.system-notice {
       align-self: center;
       background: transparent;
       color: var(--text-muted);
-      font-size: 12px;
-      font-style: italic;
+      font-size: 13px;
+      font-style: normal;
+      text-align: center;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
     }
 
     .message-source {
@@ -167,61 +266,206 @@
       margin-top: 4px;
     }
 
+    /* Typing indicator */
+    .typing-indicator {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px 0;
+    }
+
+    .typing-indicator span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      animation: typingBounce 1.4s ease-in-out infinite;
+    }
+
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typingBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-6px); opacity: 1; }
+    }
+
+    /* Markdown in assistant messages */
+    .message.assistant pre.md-code-block {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin: 6px 0;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      overflow-x: auto;
+      white-space: pre;
+      display: block;
+    }
+
+    .message.assistant code.md-inline-code {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    .message.assistant ul.md-list {
+      margin: 4px 0;
+      padding-left: 18px;
+      list-style: disc;
+    }
+
+    .message.assistant ul.md-list li { margin: 2px 0; }
+    .message.assistant strong { font-weight: 600; color: var(--text); }
+
     /* ── Input Bar ───────────────────────────────────────────────── */
     .input-bar {
       border-top: 1px solid var(--border);
       padding: 10px 12px;
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: flex-end;
       flex-shrink: 0;
+      background: var(--bg);
     }
 
     .input-bar textarea {
       flex: 1;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: var(--radius-pill);
       color: var(--text);
       font-family: var(--font);
       font-size: 13px;
-      padding: 8px 10px;
+      padding: 8px 14px;
       resize: none;
       outline: none;
       line-height: 1.4;
       max-height: 80px;
       min-height: 36px;
-      transition: border-color 0.15s;
+      transition: border-color 0.2s var(--transition-smooth), box-shadow 0.2s var(--transition-smooth);
     }
 
-    .input-bar textarea:focus { border-color: var(--accent); }
+    .input-bar textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
+    }
     .input-bar textarea::placeholder { color: var(--text-muted); }
 
     .btn-icon {
-      width: 34px;
-      height: 34px;
+      width: 36px;
+      height: 36px;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: 50%;
       color: var(--text-muted);
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      transition: all 0.2s var(--transition-smooth);
       flex-shrink: 0;
     }
 
-    .btn-icon:hover { background: var(--surface-hover); color: var(--text); }
+    .btn-icon:hover { background: var(--surface-hover); color: var(--text); transform: scale(1.05); }
     .btn-icon.active { background: var(--accent); border-color: var(--accent); color: white; }
-    .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
     .btn-send {
       background: var(--accent);
       border-color: var(--accent);
       color: white;
     }
-    .btn-send:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .btn-send:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      transform: scale(1.08);
+      box-shadow: var(--shadow-glow);
+    }
+
+    /* ── Session History Panel ────────────────────────────────────── */
+    .session-history {
+      position: absolute;
+      inset: 0;
+      background: var(--bg);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(-100%);
+      transition: transform 0.25s var(--transition-smooth);
+    }
+
+    .session-history.open {
+      transform: translateX(0);
+    }
+
+    .session-history-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .session-list {
+      flex: 1;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .session-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      cursor: pointer;
+      transition: background 0.15s;
+      gap: 8px;
+    }
+
+    .session-item:hover { background: var(--surface-hover); }
+    .session-item.active { background: var(--accent-glow); border-left: 2px solid var(--accent); }
+
+    .session-info { flex: 1; min-width: 0; }
+
+    .session-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .session-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .session-delete {
+      width: 24px;
+      height: 24px;
+      background: none;
+      border: none;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      opacity: 0;
+      transition: all 0.15s;
+    }
+
+    .session-item:hover .session-delete { opacity: 1; }
+    .session-delete:hover { background: var(--red); color: white; }
 
     /* ── Import Pane ─────────────────────────────────────────────── */
     .import-section {
@@ -417,39 +661,250 @@
       transition: width 0.3s;
     }
 
+    .progress-fill.error {
+      background: var(--red);
+    }
+
+    /* ── Loading Steps ──────────────────────────────────────────── */
+    .loading-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .loading-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .loading-step .step-indicator {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 9px;
+      transition: all 0.2s;
+    }
+
+    .loading-step.active .step-indicator {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+
+    .loading-step.done .step-indicator {
+      border-color: var(--green);
+      background: var(--green);
+      color: white;
+    }
+
+    .loading-step.error .step-indicator {
+      border-color: var(--red);
+      background: var(--red);
+      color: white;
+    }
+
+    .loading-step.done { color: var(--text); }
+    .loading-step.active { color: var(--text); }
+    .loading-step.error { color: var(--red); }
+
+    /* ── Error Banner ──────────────────────────────────────────── */
+    .error-banner {
+      display: none;
+      padding: 10px 14px;
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      border-radius: var(--radius);
+      margin: 8px 16px;
+    }
+
+    .error-banner.visible { display: block; }
+
+    .error-banner-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--red);
+      margin-bottom: 4px;
+    }
+
+    .error-banner-msg {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .btn-retry {
+      margin-top: 8px;
+      padding: 5px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .btn-retry:hover { background: var(--surface-hover); border-color: var(--accent); }
+    .btn-retry:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Voice Recording UI ─────────────────────────────────────── */
+    #btn-voice.recording {
+      background: var(--red);
+      border-color: var(--red);
+      color: white;
+      animation: voicePulse 2s ease-in-out infinite;
+      position: relative;
+    }
+
+    #btn-voice.recording::before,
+    #btn-voice.recording::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px solid var(--red);
+      animation: voiceRing 2s ease-out infinite;
+    }
+
+    #btn-voice.recording::after {
+      inset: -10px;
+      animation-delay: 0.5s;
+      border-width: 1px;
+    }
+
+    @keyframes voicePulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 12px 4px rgba(239, 68, 68, 0.3); }
+    }
+
+    @keyframes voiceRing {
+      0% { transform: scale(0.8); opacity: 0.8; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+
+    #btn-voice.voice-loading {
+      position: relative;
+      pointer-events: none;
+    }
+
+    #btn-voice.voice-loading::after {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: var(--accent);
+      animation: voiceSpin 0.8s linear infinite;
+    }
+
+    @keyframes voiceSpin { to { transform: rotate(360deg); } }
+
+    .voice-indicator {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(239, 68, 68, 0.06);
+      border-bottom: 1px solid rgba(239, 68, 68, 0.12);
+      font-size: 12px;
+      color: var(--red);
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    .voice-indicator.active { display: flex; }
+
+    .voice-indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: pulse 1.5s infinite;
+    }
+
+    .voice-indicator-bars {
+      display: flex;
+      gap: 2px;
+      align-items: center;
+      height: 16px;
+      margin-left: auto;
+    }
+
+    .voice-indicator-bars span {
+      width: 3px;
+      background: var(--red);
+      border-radius: 2px;
+      animation: voiceBar 0.8s ease-in-out infinite;
+    }
+
+    .voice-indicator-bars span:nth-child(1) { height: 6px; animation-delay: 0s; }
+    .voice-indicator-bars span:nth-child(2) { height: 12px; animation-delay: 0.1s; }
+    .voice-indicator-bars span:nth-child(3) { height: 8px; animation-delay: 0.2s; }
+    .voice-indicator-bars span:nth-child(4) { height: 14px; animation-delay: 0.3s; }
+    .voice-indicator-bars span:nth-child(5) { height: 6px; animation-delay: 0.4s; }
+
+    @keyframes voiceBar {
+      0%, 100% { transform: scaleY(0.5); }
+      50% { transform: scaleY(1.2); }
+    }
+
+    /* ── Pane Transitions ──────────────────────────────────────── */
+    .pane { display: none; flex-direction: column; height: 100%; }
+    .pane.active {
+      display: flex;
+      animation: paneIn 0.2s ease-out;
+    }
+
+    @keyframes paneIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
     /* ── Utility ─────────────────────────────────────────────────── */
     .empty-state {
-      padding: 40px 20px;
+      padding: 48px 24px;
       text-align: center;
       color: var(--text-muted);
       font-size: 13px;
     }
 
-    .empty-state p { margin-top: 8px; line-height: 1.6; }
+    .empty-state p { margin-top: 10px; line-height: 1.7; }
 
     .status-bar {
-      padding: 6px 16px;
-      background: var(--surface);
-      border-top: 1px solid var(--border);
+      padding: 5px 16px;
+      background: linear-gradient(180deg, var(--surface) 0%, rgba(26,26,26,0.9) 100%);
+      border-top: 1px solid var(--border-subtle);
       font-size: 11px;
       color: var(--text-muted);
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-shrink: 0;
+      letter-spacing: 0.01em;
     }
 
     /* ── Preview Modal ───────────────────────────────────────────── */
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 100;
       padding: 16px;
-      animation: fadeIn 0.1s ease-out;
+      animation: fadeIn 0.15s ease-out;
     }
 
     .modal-backdrop.hidden { display: none; }
@@ -462,13 +917,14 @@
     .modal {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
       width: 100%;
       max-height: 480px;
       display: flex;
       flex-direction: column;
-      animation: slideUp 0.15s ease-out;
+      animation: slideUp 0.2s var(--transition-smooth);
       overflow: hidden;
+      box-shadow: var(--shadow-md);
     }
 
     @keyframes slideUp {
@@ -575,7 +1031,23 @@
       EdgeAI
     </div>
     <div class="header-actions">
-      <button class="btn-icon" id="btn-settings" title="Settings">
+      <button class="btn-header" id="btn-new-chat" title="New chat">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+      <button class="btn-header" id="btn-history" title="Chat history">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </button>
+      <button class="btn-header" id="btn-hide" title="Stealth mode (invisible to screen share)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+          <line x1="1" y1="1" x2="23" y2="23"/>
+        </svg>
+      </button>
+      <button class="btn-header" id="btn-settings" title="Settings">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
         </svg>
@@ -584,7 +1056,7 @@
   </div>
 
   <!-- ── Tabs ────────────────────────────────────────────────────────── -->
-  <div class="tabs">
+  <div class="tabs" data-active-index="0">
     <button class="tab active" data-tab="chat">Chat</button>
     <button class="tab" data-tab="import">Import</button>
     <button class="tab" data-tab="docs">Documents</button>
@@ -599,23 +1071,49 @@
       <!-- Model loading state (shown before both models are ready) -->
       <div class="model-status" id="model-loading-state">
         <div class="model-status-row">
-          <span class="model-status-label" id="model-status-text">Initializing…</span>
-          <span class="model-status-badge" id="embeddings-badge">Embeddings</span>
+          <span class="model-status-label" id="model-status-text">Setting up EdgeAI…</span>
+          <span style="font-size:12px; font-weight:600;" id="model-progress-pct"></span>
         </div>
         <div class="progress-bar">
           <div class="progress-fill" id="model-progress-fill" style="width:0%"></div>
         </div>
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:2px;">
-          <span style="font-size:11px; color:var(--text-muted);">First run: ~35MB embeddings + 2.3GB LLM (cached forever)</span>
-          <span style="font-size:12px; font-weight:600;" id="model-progress-pct"></span>
+        <div class="loading-steps" id="loading-steps">
+          <div class="loading-step active" id="step-embeddings">
+            <span class="step-indicator">1</span>
+            <span>Loading text understanding (35 MB, cached)</span>
+          </div>
+          <div class="loading-step" id="step-llm">
+            <span class="step-indicator">2</span>
+            <span>Loading AI model (2.3 GB, cached after first run)</span>
+          </div>
+        </div>
+
+        <!-- Error banner (hidden by default) -->
+        <div class="error-banner" id="error-banner">
+          <div class="error-banner-title">Something went wrong</div>
+          <div class="error-banner-msg" id="error-banner-msg"></div>
+          <button class="btn-retry" id="btn-retry">Retry</button>
         </div>
       </div>
 
       <!-- Messages list -->
       <div class="chat-messages" id="chat-messages">
         <div class="message system-notice" id="welcome-msg">
-          Ask me anything. I know your documents.
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" style="margin-bottom:6px;">
+            <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+            <path d="M18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"/>
+          </svg>
+          <div>Your private AI assistant</div>
+          <div style="font-size:11px; margin-top:2px; opacity:0.7;">All data stays on your device. Ask anything or try voice input.</div>
         </div>
+      </div>
+
+      <!-- Session history overlay panel -->
+      <div class="session-history" id="session-history">
+        <div class="session-history-header">
+          <span style="font-weight:600; font-size:13px;">Chat History</span>
+        </div>
+        <div class="session-list" id="session-list"></div>
       </div>
     </div>
 
@@ -709,6 +1207,15 @@
 
   </div>
 
+  <!-- ── Voice Indicator ────────────────────────────────────────────── -->
+  <div class="voice-indicator" id="voice-indicator">
+    <span class="voice-indicator-dot"></span>
+    <span>Listening...</span>
+    <div class="voice-indicator-bars">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+  </div>
+
   <!-- ── Input Bar (chat only) ──────────────────────────────────────── -->
   <div class="input-bar" id="input-bar">
     <button class="btn-icon" id="btn-voice" title="Voice input (hold to record)">
@@ -719,7 +1226,7 @@
     </button>
     <textarea
       id="chat-input"
-      placeholder="Ask anything… (Enter to send, Shift+Enter for newline)"
+      placeholder="Loading AI model… please wait"
       rows="1"
     ></textarea>
     <button class="btn-icon btn-send" id="btn-send" title="Send (Enter)" disabled>
@@ -731,8 +1238,8 @@
 
   <!-- ── Status Bar ─────────────────────────────────────────────────── -->
   <div class="status-bar">
-    <span id="status-text">Initializing…</span>
-    <span id="status-model">–</span>
+    <span id="status-text">Setting up…</span>
+    <span id="status-model">v0.1.0</span>
   </div>
 
   <!-- ── Preview Modal ──────────────────────────────────────────────── -->

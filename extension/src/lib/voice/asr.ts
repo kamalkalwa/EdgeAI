@@ -97,6 +97,7 @@ export function buildVoiceTranscript(transcript: string): VoiceTranscript {
 export interface VoiceSessionCallbacks {
   onTranscript: (transcript: VoiceTranscript) => void;
   onError: (error: Error) => void;
+  onStateChange?: (state: 'recording' | 'processing' | 'idle') => void;
 }
 
 export class VoiceSession {
@@ -115,6 +116,7 @@ export class VoiceSession {
   async start(callbacks: VoiceSessionCallbacks): Promise<void> {
     if (this.isRecording) return;
 
+    console.log('[EdgeAI Voice] Requesting microphone access…');
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         sampleRate: SAMPLE_RATE,
@@ -123,6 +125,7 @@ export class VoiceSession {
         noiseSuppression: true,
       },
     });
+    console.log('[EdgeAI Voice] Microphone access granted, tracks:', this.stream.getAudioTracks().length);
 
     this.audioChunks = [];
     this.mediaRecorder = new MediaRecorder(this.stream, {
@@ -132,14 +135,26 @@ export class VoiceSession {
     this.mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
         this.audioChunks.push(e.data);
+        console.log(`[EdgeAI Voice] Audio chunk received: ${e.data.size} bytes (total chunks: ${this.audioChunks.length})`);
       }
     };
 
     this.mediaRecorder.onstop = async () => {
+      callbacks.onStateChange?.('processing');
       try {
+        console.log(`[EdgeAI Voice] Recording stopped. Processing ${this.audioChunks.length} chunks…`);
+
+        if (this.audioChunks.length === 0) {
+          callbacks.onError(new Error('No audio captured — recording was too short'));
+          callbacks.onStateChange?.('idle');
+          return;
+        }
+
         const blob = new Blob(this.audioChunks, { type: 'audio/webm' });
+        console.log(`[EdgeAI Voice] Audio blob: ${blob.size} bytes`);
         const arrayBuffer = await blob.arrayBuffer();
         const audio = await decodeAudioToFloat32(arrayBuffer, SAMPLE_RATE);
+        console.log(`[EdgeAI Voice] Decoded audio: ${audio.length} samples (${(audio.length / SAMPLE_RATE).toFixed(1)}s)`);
 
         // VAD check: does this audio contain speech?
         let hasSpeech = false;
@@ -150,24 +165,38 @@ export class VoiceSession {
               break;
             }
           }
+          console.log(`[EdgeAI Voice] VAD result: ${hasSpeech ? 'speech detected' : 'no speech'}`);
         } else {
           hasSpeech = true; // fallback: always transcribe if VAD not loaded
+          console.log('[EdgeAI Voice] VAD not loaded, skipping — will transcribe anyway');
         }
 
-        if (!hasSpeech) return; // skip silence
+        if (!hasSpeech) {
+          callbacks.onError(new Error('No speech detected'));
+          callbacks.onStateChange?.('idle');
+          return;
+        }
 
+        console.log('[EdgeAI Voice] Running Whisper transcription…');
         const text = await this.asr.transcribe(audio);
+        console.log(`[EdgeAI Voice] Whisper result: "${text}"`);
+
         if (text.length > 2) {
           callbacks.onTranscript(buildVoiceTranscript(text));
+        } else {
+          callbacks.onError(new Error('No speech detected'));
         }
       } catch (err) {
         callbacks.onError(err instanceof Error ? err : new Error(String(err)));
       }
+      callbacks.onStateChange?.('idle');
     };
 
     // Record in 3-second chunks to enable streaming-ish experience
     this.mediaRecorder.start(3000);
     this.isRecording = true;
+    callbacks.onStateChange?.('recording');
+    console.log('[EdgeAI Voice] MediaRecorder started (3s timeslice)');
   }
 
   stop(): void {

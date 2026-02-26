@@ -27,12 +27,53 @@ import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
 import { nanoid } from '@/lib/utils';
 
-// Disable the ONNX wasm worker proxy — it spawns workers via blob: URLs which
-// Chrome MV3 CSP forbids in extension pages (worker-src must be 'self' only).
-// Inference runs on the main offscreen thread; for WASM this is acceptable given
-// the offscreen document is already isolated from the popup.
-if (transformersEnv.backends.onnx.wasm) {
-  transformersEnv.backends.onnx.wasm.proxy = false;
+// ─── ONNX Runtime Configuration for Chrome Extension CSP ────────────────────
+//
+// Chrome MV3 CSP (`script-src 'self' 'wasm-unsafe-eval'`) blocks:
+// 1. Dynamic import() of scripts from CDN (only 'self' allowed)
+// 2. Dynamic import() of blob: URLs (used by ONNX Runtime's preload path)
+// 3. Web Worker creation via blob: URLs (worker-src 'self')
+//
+// Fix: Point ONNX Runtime to the extension's own copy of the WASM files
+// (copied by the copyOrtWasmFiles Vite plugin), disable proxy workers, and
+// force single-threaded execution to avoid the multi-thread preload code path.
+
+const onnxEnv = transformersEnv.backends.onnx;
+
+if (onnxEnv?.wasm) {
+  // Point to extension-local copies of the ONNX Runtime WASM files.
+  // These are copied to dist/ort/ by the Vite plugin and served as
+  // same-origin extension resources, bypassing the CDN + blob: URL path.
+  onnxEnv.wasm.wasmPaths = chrome.runtime.getURL('ort/');
+
+  // Disable worker proxy — blob: Workers are blocked by CSP.
+  // Inference runs on the offscreen document's main thread (isolated from popup).
+  onnxEnv.wasm.proxy = false;
+
+  // Force single-threaded to avoid the multi-thread code path which uses
+  // preload() → blob: URL → dynamic import() (blocked by CSP).
+  onnxEnv.wasm.numThreads = 1;
+}
+
+// Retry helper with exponential backoff for transient WASM loading failures.
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  { maxRetries = 3, baseDelay = 1000, label = 'operation' } = {}
+): Promise<T> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.warn(`[EdgeAI] ${label} attempt ${attempt + 1} failed, retrying in ${delay}ms:`, lastError.message);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastError!;
 }
 
 // ─── Model Configuration ─────────────────────────────────────────────────────
@@ -100,17 +141,23 @@ async function initStoresAndEmbeddings(): Promise<void> {
 
     if (!embeddingModel) {
       const em = new EmbeddingModel();
-      await em.load((progress) => {
-        broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'embeddings', progress } });
-      });
+      await withRetry(
+        () => em.load((progress) => {
+          broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'embeddings', progress } });
+        }),
+        { label: 'embeddings', maxRetries: 3 }
+      );
       embeddingModel = em; // assign AFTER load() completes
     }
 
     if (!rerankerModel) {
       const rm = new RerankerModel();
-      await rm.load((progress) => {
-        broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'reranker', progress } });
-      });
+      await withRetry(
+        () => rm.load((progress) => {
+          broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'reranker', progress } });
+        }),
+        { label: 'reranker', maxRetries: 3 }
+      );
       rerankerModel = rm; // assign AFTER load() completes
     }
   })().finally(() => {
@@ -130,27 +177,48 @@ async function initialize(): Promise<void> {
 
     // Load LLM — this is the big download (2.3GB first time, Cache API thereafter)
     const modelId = await selectModelForHardware();
-    llmEngine = await webllm.CreateMLCEngine(modelId, {
-      initProgressCallback: (progress) => {
-        broadcastStatus({
-          type: 'MODEL_PROGRESS',
-          payload: {
-            model: 'llm',
-            progress: Math.round(progress.progress * 100),
-            text: progress.text,
-          },
-        });
-      },
-    });
+    llmEngine = await withRetry(
+      () => webllm.CreateMLCEngine(modelId, {
+        initProgressCallback: (progress) => {
+          broadcastStatus({
+            type: 'MODEL_PROGRESS',
+            payload: {
+              model: 'llm',
+              progress: Math.round(progress.progress * 100),
+              text: progress.text,
+            },
+          });
+        },
+      }),
+      { label: 'LLM', maxRetries: 2, baseDelay: 2000 }
+    );
 
     broadcastStatus({ type: 'MODEL_READY', payload: { model: 'llm', modelId } });
   } catch (error) {
-    initError = error instanceof Error ? error.message : 'Initialization failed';
-    broadcastStatus({ type: 'MODEL_ERROR', payload: { error: initError } });
+    const rawMsg = error instanceof Error ? error.message : 'Initialization failed';
+    initError = humanizeError(rawMsg);
+    broadcastStatus({ type: 'MODEL_ERROR', payload: { error: initError, canRetry: true } });
     throw error;
   } finally {
     isInitializing = false;
   }
+}
+
+/** Translate cryptic WASM/WebGPU errors into user-friendly messages. */
+function humanizeError(raw: string): string {
+  if (raw.includes('no available backend') || raw.includes('Failed to fetch dynamically imported module')) {
+    return 'Your browser could not load the AI engine. This usually means WebGPU is unavailable or blocked. Try updating Chrome or enabling WebGPU in chrome://flags.';
+  }
+  if (raw.includes('WebGPU') || raw.includes('requestAdapter')) {
+    return 'WebGPU is not supported on this device. EdgeAI needs a browser with WebGPU to run the local AI model.';
+  }
+  if (raw.includes('out of memory') || raw.includes('OOM')) {
+    return 'Not enough memory to load the AI model. Try closing other tabs or applications and retry.';
+  }
+  if (raw.includes('network') || raw.includes('fetch')) {
+    return 'Could not download model files. Check your internet connection and retry — files are cached after first download.';
+  }
+  return raw;
 }
 
 async function selectModelForHardware(): Promise<string> {
@@ -203,26 +271,38 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
   let augmentedSystem = systemPrompt ?? buildSystemPrompt();
 
   // RAG: retrieve relevant context for the last user message.
-  // Wrapped in try/catch so a RAG failure (e.g. model still warming up) never
-  // blocks the user from getting a response — we just answer from base knowledge.
+  let ragChunkCount = 0;
   if (useRag && vectorStore && embeddingModel && rerankerModel) {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
     if (lastUserMsg) {
       try {
+        console.log('[EdgeAI] RAG: searching for context…', lastUserMsg.content.slice(0, 80));
         const context = await buildRagContext(
           lastUserMsg.content,
           vectorStore,
           embeddingModel,
           rerankerModel
         );
-        if (context.chunks.length > 0) {
+        ragChunkCount = context.chunks.length;
+        console.log(`[EdgeAI] RAG: found ${ragChunkCount} relevant chunks`);
+        if (ragChunkCount > 0) {
           augmentedSystem += '\n\n' + context.systemPromptAddition;
         }
       } catch (ragErr) {
-        // RAG is best-effort — log and continue without context
-        console.warn('[EdgeAI] RAG failed, answering without context:', ragErr);
+        console.error('[EdgeAI] RAG failed:', ragErr);
+        // Notify user that context retrieval failed so they know why the answer lacks context
+        chrome.runtime.sendMessage({
+          type: 'CHAT_CHUNK',
+          payload: { token: '[Could not retrieve document context — answering from general knowledge]\n\n', requestId },
+        }).catch(() => {});
       }
     }
+  } else if (useRag) {
+    console.warn('[EdgeAI] RAG skipped — missing dependencies:', {
+      vectorStore: !!vectorStore,
+      embeddingModel: !!embeddingModel,
+      rerankerModel: !!rerankerModel,
+    });
   }
 
   const fullMessages: webllm.ChatCompletionMessageParam[] = [
@@ -351,9 +431,14 @@ async function handleSearch(request: SearchRequest): Promise<unknown> {
 async function ensureVoiceModels(): Promise<{ asr: WhisperASR; vad: SileroVAD }> {
   if (!sileroVad) {
     sileroVad = new SileroVAD();
-    await sileroVad.load((progress) => {
-      broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'vad', progress } });
-    });
+    try {
+      await sileroVad.load((progress) => {
+        broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'vad', progress } });
+      });
+    } catch (err) {
+      // VAD is optional — VoiceSession skips VAD when isLoaded is false (asr.ts line 161)
+      console.warn('[EdgeAI] VAD failed to load (voice will work without it):', err instanceof Error ? err.message : err);
+    }
   }
 
   if (!whisperAsr) {
@@ -373,21 +458,37 @@ async function handleVoiceStart(): Promise<void> {
     voiceSession = new VoiceSession(asr, vad);
   }
 
-  await voiceSession.start({
-    onTranscript: (transcript) => {
-      chrome.runtime.sendMessage({
-        type: 'VOICE_TRANSCRIPT',
-        payload: { text: transcript.text, intent: transcript.intent },
-      }).catch(() => {});
-    },
-    onError: (error) => {
-      console.error('[EdgeAI offscreen] Voice error:', error);
-      broadcastStatus({
-        type: 'MODEL_ERROR',
-        payload: { error: `Voice error: ${error.message}` },
-      });
-    },
-  });
+  try {
+    console.log('[EdgeAI offscreen] Starting voice session…');
+    await voiceSession.start({
+      onTranscript: (transcript) => {
+        chrome.runtime.sendMessage({
+          type: 'VOICE_TRANSCRIPT',
+          payload: { text: transcript.text, intent: transcript.intent },
+        }).catch(() => {});
+      },
+      onError: (error) => {
+        console.error('[EdgeAI offscreen] Voice error:', error);
+        broadcastStatus({
+          type: 'VOICE_ERROR',
+          payload: { error: error.message },
+        });
+      },
+      onStateChange: (state) => {
+        console.log(`[EdgeAI offscreen] Voice state: ${state}`);
+      },
+    });
+    console.log('[EdgeAI offscreen] Voice session started successfully');
+  } catch (err) {
+    const errName = err instanceof Error ? err.name : 'unknown';
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[EdgeAI offscreen] Voice start failed:', { name: errName, message: msg, raw: err });
+    // Specific error for mic permission denied
+    if (msg.includes('NotAllowedError') || msg.includes('Permission denied') || msg.includes('not allowed')) {
+      throw new Error('Microphone access denied. Allow microphone in Chrome site settings for this extension.');
+    }
+    throw err;
+  }
 }
 
 // ─── Message Router ───────────────────────────────────────────────────────────
@@ -406,6 +507,25 @@ chrome.runtime.onMessage.addListener(
           .then(() => sendResponse({ type: 'MODEL_READY' }))
           .catch((err) => sendResponse({ type: 'MODEL_ERROR', payload: { error: err.message } }));
         return true;
+
+      case 'RETRY_INIT':
+        // Reset state so initialization can be attempted again
+        initError = null;
+        isInitializing = false;
+        _initPromise = null;
+        broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'embeddings', progress: 0 } });
+        (async () => {
+          try {
+            await initStoresAndEmbeddings();
+            broadcastStatus({ type: 'MODEL_READY', payload: { model: 'embeddings_and_reranker' } });
+            await initialize();
+          } catch (retryErr) {
+            // Error is already broadcast by initialize() / humanizeError()
+            console.error('[EdgeAI] Retry failed:', retryErr);
+          }
+        })();
+        sendResponse({ acknowledged: true });
+        return false;
 
       case 'GET_STATUS':
         sendResponse({
@@ -466,14 +586,17 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case 'VOICE_START':
-        handleVoiceStart().catch((err) =>
-          broadcastStatus({
-            type: 'MODEL_ERROR',
-            payload: { error: `Voice start failed: ${err instanceof Error ? err.message : String(err)}` },
-          })
-        );
-        sendResponse({ acknowledged: true });
-        return false;
+        handleVoiceStart()
+          .then(() => sendResponse({ ready: true }))
+          .catch((err) => {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            broadcastStatus({
+              type: 'VOICE_ERROR',
+              payload: { error: errMsg },
+            });
+            sendResponse({ error: errMsg });
+          });
+        return true; // keep port open for async response
 
       case 'VOICE_STOP':
         voiceSession?.stop();
@@ -507,7 +630,14 @@ chrome.runtime.onMessage.addListener(
     await initStoresAndEmbeddings();
     broadcastStatus({ type: 'MODEL_READY', payload: { model: 'embeddings_and_reranker' } });
   } catch (err) {
-    console.error('[EdgeAI offscreen] Init error:', err);
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const friendly = humanizeError(rawMsg);
+    console.error('[EdgeAI offscreen] Init error:', rawMsg);
+    initError = friendly;
+    broadcastStatus({
+      type: 'MODEL_ERROR',
+      payload: { error: friendly, stage: 'embeddings', canRetry: true },
+    });
   }
 })();
 

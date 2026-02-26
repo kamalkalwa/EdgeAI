@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EdgeAI — Microphone Access</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --text-muted: #888;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      padding: 40px;
+      text-align: center;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      max-width: 420px;
+    }
+    .icon { color: var(--accent); }
+    h1 { font-size: 20px; font-weight: 600; }
+    p { color: var(--text-muted); line-height: 1.6; }
+    .btn {
+      margin-top: 8px;
+      padding: 12px 32px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn:hover { background: var(--accent-hover); transform: scale(1.02); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .status {
+      margin-top: 12px;
+      font-size: 13px;
+      padding: 10px 16px;
+      border-radius: 8px;
+    }
+    .status.success {
+      background: rgba(34, 197, 94, 0.1);
+      color: var(--green);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+    .status.error {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--red);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+    .hint {
+      margin-top: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <svg class="icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+      <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/>
+    </svg>
+    <h1>Microphone Access</h1>
+    <p>EdgeAI needs microphone access for voice input. Click the button below and <strong>allow</strong> when your browser asks for permission.</p>
+    <button class="btn" id="btn-grant">Allow Microphone</button>
+    <div id="status"></div>
+    <div class="hint">This page will close automatically after access is granted.</div>
+  </div>
+
+  <script type="module" src="./mic-grant.ts"></script>
+</body>
+</html>
