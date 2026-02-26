@@ -482,6 +482,12 @@ async function handleVoiceStart(): Promise<void> {
           payload: { text: transcript.text, intent: transcript.intent },
         }).catch(() => {});
       },
+      onPartialTranscript: (text) => {
+        chrome.runtime.sendMessage({
+          type: 'VOICE_PARTIAL',
+          payload: { text },
+        }).catch(() => {});
+      },
       onError: (error) => {
         console.error('[EdgeAI offscreen] Voice error:', error);
         broadcastStatus({

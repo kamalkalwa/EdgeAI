@@ -95,9 +95,14 @@ export function buildVoiceTranscript(transcript: string): VoiceTranscript {
 
 export interface VoiceSessionCallbacks {
   onTranscript: (transcript: VoiceTranscript) => void;
+  onPartialTranscript?: (text: string) => void;
   onError: (error: Error) => void;
   onStateChange?: (state: 'recording' | 'processing' | 'idle') => void;
 }
+
+// How many consecutive silent 1s chunks before auto-stopping
+const SILENCE_CHUNKS_TO_STOP = 2;
+const CHUNK_TIMESLICE_MS = 1000;
 
 export class VoiceSession {
   private mediaRecorder: MediaRecorder | null = null;
@@ -106,6 +111,10 @@ export class VoiceSession {
   private vad: SileroVAD;
   private audioChunks: Blob[] = [];
   private isRecording = false;
+  private isTranscribing = false;
+  private lastTranscript = '';
+  private silentChunkCount = 0;
+  private callbacks: VoiceSessionCallbacks | null = null;
 
   constructor(asr: WhisperASR, vad: SileroVAD) {
     this.asr = asr;
@@ -124,9 +133,12 @@ export class VoiceSession {
         noiseSuppression: true,
       },
     });
-    console.log('[EdgeAI Voice] Microphone access granted, tracks:', this.stream.getAudioTracks().length);
+    console.log('[EdgeAI Voice] Microphone access granted');
 
     this.audioChunks = [];
+    this.lastTranscript = '';
+    this.silentChunkCount = 0;
+    this.callbacks = callbacks;
     this.mediaRecorder = new MediaRecorder(this.stream, {
       mimeType: 'audio/webm;codecs=opus',
     });
@@ -134,75 +146,92 @@ export class VoiceSession {
     this.mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
         this.audioChunks.push(e.data);
-        console.log(`[EdgeAI Voice] Audio chunk received: ${e.data.size} bytes (total chunks: ${this.audioChunks.length})`);
+        this.processChunksIncrementally();
       }
     };
 
-    this.mediaRecorder.onstop = async () => {
-      callbacks.onStateChange?.('processing');
-      try {
-        console.log(`[EdgeAI Voice] Recording stopped. Processing ${this.audioChunks.length} chunks…`);
-
-        if (this.audioChunks.length === 0) {
-          callbacks.onError(new Error('No audio captured — recording was too short'));
-          callbacks.onStateChange?.('idle');
-          return;
-        }
-
-        const blob = new Blob(this.audioChunks, { type: 'audio/webm' });
-        console.log(`[EdgeAI Voice] Audio blob: ${blob.size} bytes`);
-        const arrayBuffer = await blob.arrayBuffer();
-        const audio = await decodeAudioToFloat32(arrayBuffer, SAMPLE_RATE);
-        console.log(`[EdgeAI Voice] Decoded audio: ${audio.length} samples (${(audio.length / SAMPLE_RATE).toFixed(1)}s)`);
-
-        // VAD check: does this audio contain speech?
-        let hasSpeech = false;
-        if (this.vad.isLoaded) {
-          for (const frame of splitIntoFrames(audio)) {
-            if (await this.vad.isSpeech(frame)) {
-              hasSpeech = true;
-              break;
-            }
-          }
-          console.log(`[EdgeAI Voice] VAD result: ${hasSpeech ? 'speech detected' : 'no speech'}`);
-        } else {
-          hasSpeech = true; // fallback: always transcribe if VAD not loaded
-          console.log('[EdgeAI Voice] VAD not loaded, skipping — will transcribe anyway');
-        }
-
-        if (!hasSpeech) {
-          callbacks.onError(new Error('No speech detected'));
-          callbacks.onStateChange?.('idle');
-          return;
-        }
-
-        console.log('[EdgeAI Voice] Running Whisper transcription…');
-        const text = await this.asr.transcribe(audio);
-        console.log(`[EdgeAI Voice] Whisper result: "${text}"`);
-
-        if (text.length > 2) {
-          callbacks.onTranscript(buildVoiceTranscript(text));
-        } else {
-          callbacks.onError(new Error('No speech detected'));
-        }
-      } catch (err) {
-        callbacks.onError(err instanceof Error ? err : new Error(String(err)));
+    this.mediaRecorder.onstop = () => {
+      // Final transcript: use whatever the last partial produced
+      const finalText = this.lastTranscript;
+      if (finalText.length > 2) {
+        callbacks.onTranscript(buildVoiceTranscript(finalText));
+      } else if (this.audioChunks.length > 0) {
+        callbacks.onError(new Error('No speech detected'));
       }
       callbacks.onStateChange?.('idle');
     };
 
-    // Record in 3-second chunks to enable streaming-ish experience
-    this.mediaRecorder.start(3000);
+    this.mediaRecorder.start(CHUNK_TIMESLICE_MS);
     this.isRecording = true;
     callbacks.onStateChange?.('recording');
-    console.log('[EdgeAI Voice] MediaRecorder started (3s timeslice)');
+    console.log(`[EdgeAI Voice] MediaRecorder started (${CHUNK_TIMESLICE_MS}ms timeslice)`);
+  }
+
+  /**
+   * Process accumulated audio chunks through Whisper incrementally.
+   * Each call transcribes the full accumulated buffer and sends only
+   * new text as a partial transcript.
+   */
+  private async processChunksIncrementally(): Promise<void> {
+    // Skip if a transcription is already in progress (avoid parallel Whisper calls)
+    if (this.isTranscribing || !this.callbacks) return;
+    this.isTranscribing = true;
+
+    try {
+      const blob = new Blob(this.audioChunks, { type: 'audio/webm' });
+      const arrayBuffer = await blob.arrayBuffer();
+      const audio = await decodeAudioToFloat32(arrayBuffer, SAMPLE_RATE);
+
+      // VAD: check the latest chunk for silence to enable auto-stop
+      if (this.vad.isLoaded) {
+        const chunkSamples = CHUNK_TIMESLICE_MS * (SAMPLE_RATE / 1000); // 1s = 16000 samples
+        const latestAudio = audio.slice(-chunkSamples);
+        let chunkHasSpeech = false;
+        for (const frame of splitIntoFrames(latestAudio)) {
+          if (await this.vad.isSpeech(frame)) {
+            chunkHasSpeech = true;
+            break;
+          }
+        }
+        if (chunkHasSpeech) {
+          this.silentChunkCount = 0;
+        } else {
+          this.silentChunkCount++;
+          console.log(`[EdgeAI Voice] Silent chunk (${this.silentChunkCount}/${SILENCE_CHUNKS_TO_STOP})`);
+          if (this.silentChunkCount >= SILENCE_CHUNKS_TO_STOP && this.lastTranscript.length > 0) {
+            console.log('[EdgeAI Voice] Auto-stopping after silence');
+            this.stop();
+            return;
+          }
+        }
+      }
+
+      // Transcribe the full accumulated buffer
+      const text = await this.asr.transcribe(audio);
+      console.log(`[EdgeAI Voice] Partial: "${text}"`);
+
+      if (text.length > 2 && text !== this.lastTranscript) {
+        this.lastTranscript = text;
+        this.callbacks.onPartialTranscript?.(text);
+      }
+    } catch (err) {
+      console.warn('[EdgeAI Voice] Incremental transcription error:', err);
+    } finally {
+      this.isTranscribing = false;
+    }
+
+    // If more chunks arrived while we were transcribing, process again
+    if (this.isRecording && this.audioChunks.length > 0) {
+      // Use a short delay to avoid tight loops
+      setTimeout(() => this.processChunksIncrementally(), 100);
+    }
   }
 
   stop(): void {
     if (!this.isRecording) return;
+    this.isRecording = false;
     this.mediaRecorder?.stop();
     this.stream?.getTracks().forEach((t) => t.stop());
-    this.isRecording = false;
   }
 
   get active(): boolean {

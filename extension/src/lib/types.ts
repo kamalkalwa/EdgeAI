@@ -24,6 +24,7 @@ export type MessageType =
   | 'DOCUMENTS_LIST'
   | 'VOICE_START'
   | 'VOICE_STOP'
+  | 'VOICE_PARTIAL'        // streaming partial transcript while recording
   | 'VOICE_TRANSCRIPT'
   | 'VOICE_ERROR'
   | 'GET_PAGE_CONTEXT'

@@ -356,8 +356,14 @@ btnVoice.addEventListener('click', async () => {
   }
 });
 
-// Listen for voice transcript and errors
+// Listen for voice partial transcripts, final transcript, and errors
 chrome.runtime.onMessage.addListener((message: Message) => {
+  if (message.type === 'VOICE_PARTIAL') {
+    const { text } = message.payload as { text: string };
+    chatInput.value = text;
+    chatInput.dispatchEvent(new Event('input'));
+  }
+
   if (message.type === 'VOICE_TRANSCRIPT') {
     const { text } = message.payload as { text: string };
     chatInput.value = text;
