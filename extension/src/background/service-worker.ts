@@ -11,6 +11,7 @@
  */
 
 import type { Message } from '@/lib/types';
+import { categorizeRequest, appendEntry, type NetworkEntry } from '@/lib/trust/network-monitor';
 
 const OFFSCREEN_URL = chrome.runtime.getURL('src/offscreen/offscreen.html');
 let creatingOffscreen: Promise<void> | null = null;
@@ -54,11 +55,23 @@ chrome.runtime.onMessage.addListener(
     // create a circular routing loop and spam port-closed errors.
     if (sender.url === OFFSCREEN_URL) return false;
 
-    // Handle keepalive pings from content script — just respond immediately
-    // to prevent SW from sleeping. The ping itself resets the idle timer.
+    // Handle keepalive pings from content script
     if (message.type === 'KEEPALIVE') {
       sendResponse({ alive: true });
-      return false; // synchronous response
+      return false;
+    }
+
+    // Network log queries — handled directly in SW, not forwarded to offscreen
+    if (message.type === 'GET_NETWORK_LOG') {
+      sendResponse({ type: 'NETWORK_LOG', payload: networkLog });
+      return false;
+    }
+    if (message.type === 'CLEAR_NETWORK_LOG') {
+      networkLog = [];
+      networkLogDirty = true;
+      persistNetworkLog();
+      sendResponse({ success: true });
+      return false;
     }
 
     // All other messages (from popup or content scripts) go to the offscreen document
@@ -172,6 +185,54 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     });
   }
 });
+
+// ─── Network Monitor ─────────────────────────────────────────────────────────
+
+// In-memory network log — persisted to chrome.storage.local periodically
+let networkLog: NetworkEntry[] = [];
+let networkLogDirty = false;
+
+// Load persisted log on startup
+chrome.storage.local.get('networkLog').then((result) => {
+  if (Array.isArray(result.networkLog)) {
+    networkLog = result.networkLog;
+  }
+}).catch(() => {});
+
+function persistNetworkLog(): void {
+  if (!networkLogDirty) return;
+  chrome.storage.local.set({ networkLog }).catch(console.error);
+  networkLogDirty = false;
+}
+
+// Persist every 10 seconds if dirty
+setInterval(persistNetworkLog, 10_000);
+
+// Record completed requests
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    // Skip extension-internal resource loads (HTML, JS, CSS)
+    if (details.url.startsWith('chrome-extension://') && details.type !== 'xmlhttprequest') {
+      return;
+    }
+
+    const entry: NetworkEntry = {
+      id: `${details.requestId}-${details.timeStamp}`,
+      url: details.url,
+      method: details.method,
+      type: details.type,
+      timestamp: details.timeStamp,
+      statusCode: details.statusCode,
+      responseSize: 0, // Not available in MV3 without webRequestBlocking
+      initiator: details.initiator ?? '',
+      category: categorizeRequest(details.url, details.initiator ?? ''),
+    };
+
+    appendEntry(networkLog, entry);
+    networkLogDirty = true;
+  },
+  { urls: ['<all_urls>'] },
+);
 
 // ─── Install / Update ─────────────────────────────────────────────────────────
 

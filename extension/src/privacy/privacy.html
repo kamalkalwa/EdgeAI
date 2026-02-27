@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EdgeAI — Privacy Policy</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --text-muted: #888;
+      --accent: #6366f1;
+      --green: #22c55e;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.7;
+      padding: 40px 20px;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-bottom: 32px;
+    }
+
+    h2 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 24px 0 8px;
+      color: var(--accent);
+    }
+
+    p, li {
+      color: var(--text);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    ul {
+      padding-left: 20px;
+      margin-bottom: 12px;
+    }
+
+    li { margin-bottom: 4px; }
+
+    .highlight {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+
+    .highlight strong {
+      color: var(--green);
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-right: 4px;
+    }
+
+    .badge.green { background: var(--green); color: #fff; }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    footer {
+      margin-top: 40px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p class="subtitle">EdgeAI — Private AI Assistant</p>
+
+  <div class="highlight">
+    <span class="badge green">TL;DR</span>
+    <strong>EdgeAI does not collect, transmit, or store any of your data on external servers. Everything runs locally on your device.</strong>
+  </div>
+
+  <h2>No Data Transmission</h2>
+  <p>EdgeAI processes all AI inference (chat, search, embeddings, voice transcription) entirely on your device using WebGPU and WebAssembly. No data is sent to any external server, API, or cloud service during normal operation.</p>
+
+  <h2>No Accounts or Telemetry</h2>
+  <ul>
+    <li>No user accounts or sign-up required</li>
+    <li>No analytics, telemetry, or crash reporting</li>
+    <li>No cookies or tracking pixels</li>
+    <li>No fingerprinting or device identification</li>
+  </ul>
+
+  <h2>Model Downloads</h2>
+  <p>The only network requests EdgeAI makes are to download AI model files from Hugging Face CDN on first use. These files are cached locally via the browser's Cache API and are never re-downloaded unless the cache is cleared. You can verify this using the Network Activity Log in the Trust Panel.</p>
+
+  <h2>Data Stored Locally</h2>
+  <p>All user data is stored in your browser's local storage (IndexedDB and chrome.storage.local):</p>
+  <ul>
+    <li><strong>Documents and chunks:</strong> Text content you import (Obsidian vaults, PDFs, bookmarks, web pages) is chunked and stored with vector embeddings for retrieval</li>
+    <li><strong>Chat history:</strong> Your conversations with the AI assistant</li>
+    <li><strong>Settings:</strong> Your voice and display preferences</li>
+    <li><strong>Audit log:</strong> A local record of all queries and operations (viewable in the Trust Panel)</li>
+  </ul>
+
+  <h2>Clearing Your Data</h2>
+  <p>You can delete all EdgeAI data at any time by:</p>
+  <ul>
+    <li>Removing individual documents from the Documents tab</li>
+    <li>Clearing chat history from the sessions panel</li>
+    <li>Clearing the audit log and network log from the Trust Panel</li>
+    <li>Uninstalling the extension (removes all data completely)</li>
+  </ul>
+
+  <h2>Permissions Explained</h2>
+  <ul>
+    <li><strong>storage / unlimitedStorage:</strong> Store documents, embeddings, and model cache locally</li>
+    <li><strong>offscreen:</strong> Run AI inference in a background document (required for WebGPU access)</li>
+    <li><strong>activeTab / scripting:</strong> Extract page content when you use "Index this tab"</li>
+    <li><strong>bookmarks:</strong> Import bookmarks for indexing (only when you explicitly choose to)</li>
+    <li><strong>host_permissions (all URLs):</strong> Download AI models from Hugging Face CDN and extract content from any tab you choose to index</li>
+    <li><strong>webRequest:</strong> Power the network activity monitor in the Trust Panel (read-only observation)</li>
+    <li><strong>alarms / notifications:</strong> Support voice-initiated reminders</li>
+    <li><strong>contextMenus:</strong> Add "Index this page with EdgeAI" to the right-click menu</li>
+  </ul>
+
+  <h2>Open Source</h2>
+  <p>EdgeAI is fully open source. You can inspect every line of code, verify the build, and confirm that no data exfiltration occurs. The exact commit hash of the running build is shown in the Trust Panel.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about privacy? Open an issue on <a href="https://github.com/edgeai/extension" target="_blank">GitHub</a>.</p>
+
+  <footer>
+    Last updated: February 2026. This policy applies to EdgeAI Chrome Extension v0.1.0 and later.
+  </footer>
+</body>
+</html>

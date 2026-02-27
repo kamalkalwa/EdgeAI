@@ -31,7 +31,13 @@ export type MessageType =
   | 'PAGE_CONTEXT'
   | 'GET_PAGE_CONTENT_FOR_INDEX'
   | 'PAGE_CONTENT_FOR_INDEX'
-  | 'RETRY_INIT';
+  | 'RETRY_INIT'
+  | 'GET_NETWORK_LOG'
+  | 'NETWORK_LOG'
+  | 'CLEAR_NETWORK_LOG'
+  | 'GET_AUDIT_LOG'
+  | 'AUDIT_LOG'
+  | 'CLEAR_AUDIT_LOG';
 
 export interface Message<T = unknown> {
   type: MessageType;
