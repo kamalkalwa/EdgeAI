@@ -12,7 +12,8 @@
     "bookmarks",
     "activeTab",
     "scripting",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "contextMenus"
   ],
 
   "host_permissions": [

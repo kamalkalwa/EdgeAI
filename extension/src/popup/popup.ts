@@ -5,8 +5,11 @@
  * Handles tabs, chat, import flows, document preview, and the trust panel.
  */
 
-import type { Message, ChatMessage, DocumentMetadata } from '@/lib/types';
-import { formatBytes } from '@/lib/utils';
+import type { Message, ChatMessage, DocumentMetadata, EdgeAISettings } from '@/lib/types';
+import { DEFAULT_SETTINGS } from '@/lib/types';
+import { formatBytes, nanoid } from '@/lib/utils';
+import { marked } from 'marked';
+import { speak, stop as ttsStop, isSpeaking } from '@/lib/voice/tts';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +28,8 @@ const state = {
   activeTab: 'chat',
   currentSessionId: '',
 };
+
+let currentSettings: EdgeAISettings = { ...DEFAULT_SETTINGS };
 
 // ─── DOM Refs ─────────────────────────────────────────────────────────────────
 
@@ -74,6 +79,7 @@ const SOURCE_ICONS: Record<string, string> = {
   google_drive: '📂',
   manual: '✏️',
   voice_note: '🎙️',
+  web_page: '🌐',
 };
 
 function sourceIcon(source: string): string {
@@ -112,20 +118,28 @@ document.querySelectorAll('.tab').forEach((tab) => {
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
+// Configure marked for GFM + line breaks
+marked.setOptions({ gfm: true, breaks: true });
+
 function renderMarkdown(text: string): string {
-  return escapeHtml(text)
-    // Code blocks: ```...```
-    .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="md-code-block"><code>$2</code></pre>')
-    // Inline code: `...`
-    .replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>')
-    // Bold: **...**
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    // Unordered lists: lines starting with - or *
-    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-    // Wrap consecutive <li> in <ul>
-    .replace(/(<li>[\s\S]*?<\/li>(?:\n|<br>)?)+/g, (match) => `<ul class="md-list">${match}</ul>`)
-    // Line breaks
-    .replace(/\n/g, '<br>');
+  const html = marked.parse(text, { async: false }) as string;
+  return addCodeBlockHeaders(html);
+}
+
+/**
+ * Post-process marked HTML to wrap code blocks with a header (language label + copy button).
+ */
+function addCodeBlockHeaders(html: string): string {
+  return html.replace(
+    /<pre><code(?:\s+class="language-(\w+)")?>([\s\S]*?)<\/code><\/pre>/g,
+    (_match, lang: string | undefined, code: string) => {
+      const label = lang ? `<span class="code-lang">${escapeHtml(lang)}</span>` : '';
+      return `<div class="code-block-wrapper">`
+        + `<div class="code-block-header">${label}<button class="code-copy-btn" type="button">Copy</button></div>`
+        + `<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>${code}</code></pre>`
+        + `</div>`;
+    },
+  );
 }
 
 const AI_AVATAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -157,6 +171,12 @@ function appendMessage(role: 'user' | 'assistant' | 'system-notice', content: st
   bubble.className = `message ${role}`;
   bubble.textContent = content;
   wrapper.appendChild(bubble);
+
+  // Add TTS speak button bar for assistant messages (hidden until streaming completes)
+  if (role === 'assistant') {
+    const speakBar = createSpeakButton(content);
+    wrapper.appendChild(speakBar);
+  }
 
   chatMessages.appendChild(wrapper);
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -191,10 +211,28 @@ async function sendChat(): Promise<void> {
 
   const requestId = crypto.randomUUID();
   let assistantContent = '';
+  let dirty = false; // true when new tokens arrived since last render
+  let lastRenderTime = 0;
+  let rafId = 0;
+  const RENDER_THROTTLE_MS = 150; // Re-parse markdown at most every 150ms
+
+  // rAF render loop: applies incremental markdown with streaming cursor
+  const renderLoop = () => {
+    const now = performance.now();
+    if (dirty && now - lastRenderTime >= RENDER_THROTTLE_MS) {
+      assistantBubble.innerHTML = renderMarkdown(assistantContent)
+        + '<span class="streaming-cursor">\u258A</span>';
+      lastRenderTime = now;
+      dirty = false;
+    }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    rafId = requestAnimationFrame(renderLoop);
+  };
 
   // Set up streaming listener
   const cleanup = () => {
     clearTimeout(streamingTimeout);
+    cancelAnimationFrame(rafId);
     chrome.runtime.onMessage.removeListener(onChunk);
   };
 
@@ -203,13 +241,13 @@ async function sendChat(): Promise<void> {
       const { token, requestId: rid } = message.payload as { token: string; requestId: string };
       if (rid !== requestId) return;
 
-      // Clear typing indicator on first token
+      // Clear typing indicator on first token and start render loop
       if (assistantContent === '' && assistantBubble.querySelector('.typing-indicator')) {
         assistantBubble.innerHTML = '';
+        rafId = requestAnimationFrame(renderLoop);
       }
       assistantContent += token;
-      assistantBubble.textContent = assistantContent;
-      chatMessages.scrollTop = chatMessages.scrollHeight;
+      dirty = true;
     }
 
     if (message.type === 'CHAT_DONE') {
@@ -217,19 +255,37 @@ async function sendChat(): Promise<void> {
       if (rid !== requestId) return;
 
       state.conversationHistory.push({ role: 'assistant', content: assistantContent });
-      // Apply markdown rendering now that streaming is complete
+      // Final render: full markdown, no cursor
       assistantBubble.innerHTML = renderMarkdown(assistantContent);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
       state.isStreaming = false;
       btnSend.disabled = false;
       saveChatHistory();
       cleanup();
+
+      // Show TTS speak button and replace placeholder content with final text
+      const wrapper = assistantBubble.closest('.message-wrapper');
+      const speakBar = wrapper?.querySelector('.message-actions');
+      if (speakBar) {
+        speakBar.classList.remove('hidden');
+        // Re-create the speak button with the actual final content
+        speakBar.innerHTML = '';
+        const freshBar = createSpeakButton(assistantContent);
+        speakBar.appendChild(freshBar.firstChild!);
+      }
+      // Auto-speak if enabled
+      if (currentSettings.ttsEnabled && assistantContent) {
+        speak(assistantContent, {
+          speed: currentSettings.ttsSpeed,
+          voiceName: currentSettings.ttsVoiceName,
+        });
+      }
     }
 
     if (message.type === 'CHAT_ERROR') {
       const { requestId: rid, error } = message.payload as { requestId: string; error: string };
       if (rid !== requestId) return;
 
-      // Show user-friendly error instead of raw message
       let userMsg = error;
       if (error.includes('LLM not loaded')) {
         userMsg = 'The AI model is still loading. Please wait for setup to complete and try again.';
@@ -249,8 +305,9 @@ async function sendChat(): Promise<void> {
   const STREAM_TIMEOUT_MS = 120_000;
   const streamingTimeout = setTimeout(() => {
     chrome.runtime.onMessage.removeListener(onChunk);
+    cancelAnimationFrame(rafId);
     if (state.isStreaming) {
-      assistantBubble.textContent += '\n[Response timed out]';
+      assistantBubble.innerHTML = renderMarkdown(assistantContent) + '\n[Response timed out]';
       state.isStreaming = false;
       btnSend.disabled = false;
     }
@@ -275,6 +332,21 @@ chatInput.addEventListener('keydown', (e) => {
     e.preventDefault();
     sendChat();
   }
+});
+
+// Copy button delegation: handle clicks on any .code-copy-btn inside chat
+chatMessages.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('.code-copy-btn') as HTMLButtonElement | null;
+  if (!btn) return;
+
+  const wrapper = btn.closest('.code-block-wrapper');
+  const code = wrapper?.querySelector('code');
+  if (!code) return;
+
+  navigator.clipboard.writeText(code.textContent ?? '').then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  });
 });
 
 // Auto-resize textarea
@@ -542,21 +614,57 @@ btnImportObsidian.addEventListener('click', async () => {
     const { selectVault, readVault } = await import('@/lib/connectors/obsidian');
     const vaultHandle = await selectVault();
 
-    let count = 0;
+    let sent = 0;
+    let indexed = 0;
     btnImportObsidian.querySelector('.label')!.textContent = 'Indexing…';
+
+    // Listen for actual INDEX_DONE completions
+    const onIndexDone = (message: Message) => {
+      if (message.type === 'INDEX_DONE' || message.type === 'INDEX_ERROR') {
+        indexed++;
+        btnImportObsidian.querySelector('.label')!.textContent = `Indexing… ${indexed}/${sent}`;
+        if (indexed >= sent) {
+          chrome.runtime.onMessage.removeListener(onIndexDone);
+          setImportProgress(progressEl, false);
+          btnImportObsidian.querySelector('.label')!.textContent = `✓ ${indexed} files indexed`;
+          setTimeout(() => {
+            btnImportObsidian.querySelector('.label')!.textContent = 'Obsidian Vault';
+            btnImportObsidian.disabled = false;
+          }, 3000);
+        }
+      }
+    };
+    chrome.runtime.onMessage.addListener(onIndexDone);
 
     for await (const doc of readVault(vaultHandle)) {
       await chrome.runtime.sendMessage({ type: 'INDEX_DOCUMENT', payload: doc });
-      count++;
-      btnImportObsidian.querySelector('.label')!.textContent = `Indexing… ${count} files`;
+      sent++;
+      btnImportObsidian.querySelector('.label')!.textContent = `Sending… ${sent} files`;
     }
 
-    setImportProgress(progressEl, false);
-    btnImportObsidian.querySelector('.label')!.textContent = `✓ ${count} files indexed`;
-    setTimeout(() => {
-      btnImportObsidian.querySelector('.label')!.textContent = 'Obsidian Vault';
-      btnImportObsidian.disabled = false;
-    }, 3000);
+    if (sent === 0) {
+      chrome.runtime.onMessage.removeListener(onIndexDone);
+      setImportProgress(progressEl, false);
+      btnImportObsidian.querySelector('.label')!.textContent = 'No .md files found';
+      setTimeout(() => {
+        btnImportObsidian.querySelector('.label')!.textContent = 'Obsidian Vault';
+        btnImportObsidian.disabled = false;
+      }, 3000);
+    } else {
+      btnImportObsidian.querySelector('.label')!.textContent = `Indexing… 0/${sent}`;
+      // Safety timeout: clean up listener after 5 minutes
+      setTimeout(() => {
+        chrome.runtime.onMessage.removeListener(onIndexDone);
+        if (indexed < sent) {
+          setImportProgress(progressEl, false);
+          btnImportObsidian.querySelector('.label')!.textContent = `✓ ${indexed}/${sent} indexed`;
+          setTimeout(() => {
+            btnImportObsidian.querySelector('.label')!.textContent = 'Obsidian Vault';
+            btnImportObsidian.disabled = false;
+          }, 3000);
+        }
+      }, 300_000);
+    }
   } catch (err) {
     setImportProgress(progressEl, false);
     console.error(err);
@@ -774,7 +882,7 @@ async function loadDocumentsList(): Promise<void> {
       deleteBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>
       </svg>`;
-      deleteBtn.dataset['id'] = escapeHtml(String(doc.id));
+      deleteBtn.dataset['id'] = String(doc.id);
 
       deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -911,6 +1019,15 @@ async function loadSession(sessionId: string): Promise<void> {
       const bubble = appendMessage(msg.role, msg.content);
       if (msg.role === 'assistant') {
         bubble.innerHTML = renderMarkdown(msg.content);
+        // Show speak button on restored assistant messages
+        const wrapper = bubble.closest('.message-wrapper');
+        const speakBar = wrapper?.querySelector('.message-actions');
+        if (speakBar) {
+          speakBar.classList.remove('hidden');
+          speakBar.innerHTML = '';
+          const freshBar = createSpeakButton(msg.content);
+          speakBar.appendChild(freshBar.firstChild!);
+        }
       }
     }
   }
@@ -1045,10 +1162,413 @@ async function toggleHistoryPanel(): Promise<void> {
   historyPanel.classList.add('open');
 }
 
+// ─── Toast Utility ───────────────────────────────────────────────────────────
+
+const indexToast = $('index-toast');
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showToast(message: string, duration = 3000): void {
+  indexToast.textContent = message;
+  indexToast.classList.add('visible');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    indexToast.classList.remove('visible');
+    toastTimer = null;
+  }, duration);
+}
+
+// ─── Settings Panel ─────────────────────────────────────────────────────────
+
+const settingsPanel = $('settings-panel');
+const settingTtsToggle = $('setting-tts-toggle') as HTMLInputElement;
+const settingTtsSpeed = $('setting-tts-speed') as HTMLInputElement;
+const settingTtsSpeedVal = $('setting-tts-speed-val');
+const settingTtsVoice = $('setting-tts-voice') as HTMLSelectElement;
+
+async function loadSettings(): Promise<EdgeAISettings> {
+  const result = await chrome.storage.local.get('edgeai_settings').catch(() => null);
+  return (result?.edgeai_settings as EdgeAISettings | undefined) ?? { ...DEFAULT_SETTINGS };
+}
+
+async function saveSettings(settings: EdgeAISettings): Promise<void> {
+  currentSettings = settings;
+  await chrome.storage.local.set({ edgeai_settings: settings }).catch(console.error);
+}
+
+function populateVoiceDropdown(): void {
+  const voices = speechSynthesis.getVoices();
+  while (settingTtsVoice.options.length > 1) settingTtsVoice.remove(1);
+  for (const voice of voices) {
+    const opt = document.createElement('option');
+    opt.value = voice.name;
+    opt.textContent = `${voice.name} (${voice.lang})`;
+    settingTtsVoice.appendChild(opt);
+  }
+  if (currentSettings.ttsVoiceName) {
+    settingTtsVoice.value = currentSettings.ttsVoiceName;
+  }
+}
+
+function populateSettingsUI(): void {
+  settingTtsToggle.checked = currentSettings.ttsEnabled;
+  settingTtsSpeed.value = String(currentSettings.ttsSpeed);
+  settingTtsSpeedVal.textContent = `${currentSettings.ttsSpeed}x`;
+  populateVoiceDropdown();
+}
+
+async function populateSettingsStorage(): Promise<void> {
+  const response = await chrome.runtime.sendMessage({ type: 'LIST_DOCUMENTS' }).catch(() => null);
+  const docs = (response?.payload ?? []) as DocumentMetadata[];
+  const totalChunks = docs.reduce((sum, d) => sum + d.chunkCount, 0);
+  $('settings-doc-count').textContent = String(docs.length);
+  $('settings-chunk-count').textContent = totalChunks.toLocaleString();
+  if (navigator.storage?.estimate) {
+    const est = await navigator.storage.estimate();
+    $('settings-storage-size').textContent = est.usage ? formatBytes(est.usage) : '--';
+  }
+}
+
+function openSettingsPanel(): void {
+  populateSettingsUI();
+  populateSettingsStorage();
+  settingsPanel.classList.add('open');
+}
+
+function closeSettingsPanel(): void {
+  settingsPanel.classList.remove('open');
+}
+
+$('settings-panel-close').addEventListener('click', closeSettingsPanel);
+
+settingTtsToggle.addEventListener('change', () => {
+  currentSettings.ttsEnabled = settingTtsToggle.checked;
+  saveSettings(currentSettings);
+});
+
+settingTtsSpeed.addEventListener('input', () => {
+  const val = parseFloat(settingTtsSpeed.value);
+  settingTtsSpeedVal.textContent = `${val}x`;
+  currentSettings.ttsSpeed = val;
+  saveSettings(currentSettings);
+});
+
+settingTtsVoice.addEventListener('change', () => {
+  currentSettings.ttsVoiceName = settingTtsVoice.value || null;
+  saveSettings(currentSettings);
+});
+
+speechSynthesis.addEventListener?.('voiceschanged', populateVoiceDropdown);
+
+$('btn-export-data').addEventListener('click', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'LIST_DOCUMENTS' }).catch(() => null);
+  const docs = (response?.payload ?? []) as DocumentMetadata[];
+  const blob = new Blob([JSON.stringify(docs, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `edgeai-export-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Data exported');
+});
+
+$('btn-clear-all-data').addEventListener('click', async () => {
+  const btn = $('btn-clear-all-data') as HTMLButtonElement;
+  if (btn.dataset['confirm'] !== 'true') {
+    btn.textContent = 'Are you sure? Click again to confirm';
+    btn.dataset['confirm'] = 'true';
+    setTimeout(() => {
+      btn.textContent = 'Clear All Data';
+      delete btn.dataset['confirm'];
+    }, 3000);
+    return;
+  }
+  await chrome.storage.local.clear().catch(console.error);
+  btn.textContent = 'All data cleared';
+  delete btn.dataset['confirm'];
+  showToast('All data cleared');
+  setTimeout(() => { btn.textContent = 'Clear All Data'; }, 2000);
+});
+
+// ─── Index This Tab ─────────────────────────────────────────────────────────
+
+$('btn-index-tab').addEventListener('click', async () => {
+  if (!state.embeddingsReady) {
+    showToast('Embeddings still loading — please wait');
+    return;
+  }
+
+  let tab: chrome.tabs.Tab | undefined;
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    tab = activeTab;
+  } catch {
+    showToast('Could not access the current tab');
+    return;
+  }
+
+  if (!tab?.id || !tab.url) {
+    showToast('No active tab found');
+    return;
+  }
+
+  if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') ||
+      tab.url.startsWith('about:') || tab.url.startsWith('edge://')) {
+    showToast('Cannot index browser internal pages');
+    return;
+  }
+
+  showToast('Extracting page content…', 10000);
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTENT_FOR_INDEX' });
+
+    if (!response?.payload?.content) {
+      showToast('Could not extract content from this page');
+      return;
+    }
+
+    const { url, title, content } = response.payload as { url: string; title: string; content: string };
+    showToast(`Indexing "${title}"…`, 15000);
+
+    const reqId = nanoid();
+    await chrome.runtime.sendMessage({
+      type: 'INDEX_DOCUMENT',
+      payload: {
+        content,
+        metadata: {
+          title: title || url,
+          source: 'web_page',
+          sourcePath: url,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      },
+      requestId: reqId,
+    });
+
+    const onIndexResult = (message: Message) => {
+      const msgReqId = (message.payload as { requestId?: string } | undefined)?.requestId;
+      if (message.type === 'INDEX_DONE' && msgReqId === reqId) {
+        const payload = message.payload as { documentId: string; chunkCount?: number } | undefined;
+        const chunks = payload?.chunkCount ?? 0;
+        showToast(`Indexed! ${chunks} chunks from "${title}"`);
+        chrome.runtime.onMessage.removeListener(onIndexResult);
+      }
+      if (message.type === 'INDEX_ERROR' && msgReqId === reqId) {
+        showToast('Failed to index this page');
+        chrome.runtime.onMessage.removeListener(onIndexResult);
+      }
+    };
+    chrome.runtime.onMessage.addListener(onIndexResult);
+    setTimeout(() => chrome.runtime.onMessage.removeListener(onIndexResult), 30000);
+  } catch {
+    showToast('Failed — make sure the page has loaded completely');
+  }
+});
+
+// ─── TTS Speak Button Helpers ───────────────────────────────────────────────
+
+const SPEAK_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>`;
+const STOP_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>`;
+
+function createSpeakButton(content: string): HTMLElement {
+  const bar = document.createElement('div');
+  bar.className = 'message-actions hidden';
+
+  const btn = document.createElement('button');
+  btn.className = 'msg-action-btn msg-speak-btn';
+  btn.innerHTML = `${SPEAK_SVG} <span>Speak</span>`;
+  btn.title = 'Read aloud';
+
+  btn.addEventListener('click', () => {
+    if (isSpeaking()) {
+      ttsStop();
+      btn.innerHTML = `${SPEAK_SVG} <span>Speak</span>`;
+      btn.classList.remove('speaking');
+    } else {
+      speak(content, {
+        speed: currentSettings.ttsSpeed,
+        voiceName: currentSettings.ttsVoiceName,
+        onEnd: () => {
+          btn.innerHTML = `${SPEAK_SVG} <span>Speak</span>`;
+          btn.classList.remove('speaking');
+        },
+      });
+      btn.innerHTML = `${STOP_SVG} <span>Stop</span>`;
+      btn.classList.add('speaking');
+    }
+  });
+
+  bar.appendChild(btn);
+  return bar;
+}
+
+// ─── Onboarding Wizard ──────────────────────────────────────────────────────
+
+let onboardingImportedTitle = '';
+
+async function isFirstRun(): Promise<boolean> {
+  const result = await chrome.storage.local.get('onboardingComplete').catch(() => null);
+  return !result?.onboardingComplete;
+}
+
+async function completeOnboarding(): Promise<void> {
+  await chrome.storage.local.set({ onboardingComplete: true }).catch(console.error);
+  $('onboarding').style.display = 'none';
+  chatMessages.style.display = '';
+  showWelcomeMessage();
+}
+
+function goToOnboardingStep(step: number): void {
+  for (let i = 1; i <= 3; i++) {
+    const el = $(`onboarding-step-${i}`);
+    if (i === step) el.classList.add('active');
+    else el.classList.remove('active');
+  }
+}
+
+function advanceToStep3(title?: string): void {
+  goToOnboardingStep(3);
+  if (title) {
+    onboardingImportedTitle = title;
+    const suggestedQ = $('onboarding-suggested-q') as HTMLButtonElement;
+    const suggestion = $('onboarding-suggestion');
+    suggestedQ.textContent = `"What's in ${title}?"`;
+    suggestedQ.style.display = '';
+    suggestion.textContent = `Your data has been imported. Try asking a question about "${title}".`;
+  }
+}
+
+function showOnboarding(): void {
+  chatMessages.style.display = 'none';
+  $('onboarding').style.display = '';
+  goToOnboardingStep(1);
+
+  // Step 1 → Step 2
+  $('onboarding-next-1').addEventListener('click', () => goToOnboardingStep(2));
+
+  // Skip at step 1
+  $('onboarding-skip').addEventListener('click', () => completeOnboarding());
+
+  // Skip at step 2
+  $('onboarding-skip-2').addEventListener('click', () => completeOnboarding());
+
+  // Step 2 import handlers
+  $('onboarding-import-obsidian').addEventListener('click', async () => {
+    if (!state.embeddingsReady) {
+      showToast('Models still loading — please wait');
+      return;
+    }
+    try {
+      const btn = $('onboarding-import-obsidian') as HTMLButtonElement;
+      btn.textContent = 'Opening vault…';
+      const { selectVault, readVault } = await import('@/lib/connectors/obsidian');
+      const vaultHandle = await selectVault();
+      let count = 0;
+      let firstTitle = '';
+      for await (const doc of readVault(vaultHandle)) {
+        await chrome.runtime.sendMessage({ type: 'INDEX_DOCUMENT', payload: doc });
+        if (!firstTitle) firstTitle = doc.metadata?.title ?? '';
+        count++;
+        btn.textContent = `Indexing… ${count} files`;
+      }
+      btn.textContent = `✓ ${count} files imported`;
+      advanceToStep3(firstTitle || 'your vault');
+    } catch {
+      ($('onboarding-import-obsidian') as HTMLButtonElement).textContent = '🗃️  Import Obsidian Vault';
+    }
+  });
+
+  $('onboarding-import-pdf').addEventListener('click', async () => {
+    if (!state.embeddingsReady) {
+      showToast('Models still loading — please wait');
+      return;
+    }
+    // Trigger the existing hidden PDF input
+    pdfFileInput.click();
+    // Listen for the change event once
+    pdfFileInput.addEventListener('change', async function onboardPdf() {
+      pdfFileInput.removeEventListener('change', onboardPdf);
+      const files = pdfFileInput.files;
+      if (!files || files.length === 0) return;
+      const btn = $('onboarding-import-pdf') as HTMLButtonElement;
+      btn.textContent = 'Indexing…';
+      const { indexPdfFiles } = await import('@/lib/connectors/pdf');
+      let count = 0;
+      let firstTitle = '';
+      try {
+        for await (const doc of indexPdfFiles(files)) {
+          await chrome.runtime.sendMessage({ type: 'INDEX_DOCUMENT', payload: doc });
+          if (!firstTitle) firstTitle = doc.metadata?.title ?? '';
+          count++;
+        }
+      } catch { /* ignore */ }
+      btn.textContent = `✓ ${count} PDF${count !== 1 ? 's' : ''} imported`;
+      pdfFileInput.value = '';
+      advanceToStep3(firstTitle || 'your PDF');
+    }, { once: true });
+  });
+
+  $('onboarding-index-tab').addEventListener('click', async () => {
+    if (!state.embeddingsReady) {
+      showToast('Models still loading — please wait');
+      return;
+    }
+    const btn = $('onboarding-index-tab') as HTMLButtonElement;
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!activeTab?.id || !activeTab.url ||
+          activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('chrome-extension://')) {
+        showToast('Cannot index this page');
+        return;
+      }
+      btn.textContent = 'Indexing…';
+      const response = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_PAGE_CONTENT_FOR_INDEX' });
+      if (!response?.payload?.content) {
+        showToast('Could not extract content');
+        btn.textContent = '🌐  Index Current Tab';
+        return;
+      }
+      const { url, title, content } = response.payload;
+      await chrome.runtime.sendMessage({
+        type: 'INDEX_DOCUMENT',
+        payload: {
+          content,
+          metadata: {
+            title: title || url,
+            source: 'web_page',
+            sourcePath: url,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        },
+      });
+      btn.textContent = `✓ "${title}" indexed`;
+      advanceToStep3(title || 'this page');
+    } catch {
+      btn.textContent = '🌐  Index Current Tab';
+      showToast('Failed to index tab');
+    }
+  });
+
+  // Step 3: suggested question
+  $('onboarding-suggested-q').addEventListener('click', async () => {
+    await completeOnboarding();
+    chatInput.value = `What's in ${onboardingImportedTitle}?`;
+    chatInput.dispatchEvent(new Event('input'));
+    sendChat();
+  });
+
+  // Step 3: start chatting (no suggested question)
+  $('onboarding-done').addEventListener('click', () => completeOnboarding());
+}
+
 // ─── Header Buttons ──────────────────────────────────────────────────────────
 
 $('btn-new-chat').addEventListener('click', () => startNewChat());
 $('btn-history').addEventListener('click', () => toggleHistoryPanel());
+$('btn-settings').addEventListener('click', () => openSettingsPanel());
 $('btn-hide').addEventListener('click', () => {
   // Open stealth (PiP) mode — see stealth page
   chrome.tabs.create({ url: chrome.runtime.getURL('src/stealth/stealth.html') });
@@ -1066,8 +1586,17 @@ async function init(): Promise<void> {
     if (btnHide) btnHide.style.display = 'none';
   }
 
-  // Restore chat history from previous session
-  await loadChatHistory();
+  // Load user settings
+  currentSettings = await loadSettings();
+
+  // Check for first-run onboarding
+  const firstRun = await isFirstRun();
+  if (firstRun) {
+    showOnboarding();
+  } else {
+    // Restore chat history from previous session
+    await loadChatHistory();
+  }
 
   // Request status from offscreen document
   const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' }).catch(() => null);

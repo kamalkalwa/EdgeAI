@@ -97,6 +97,60 @@ function extractPageContext(): PageContext {
   };
 }
 
+// ─── Full Page Content Extraction (for indexing) ──────────────────────────────
+
+function extractPageContentForIndex(): { url: string; title: string; content: string } {
+  const MAX_INDEX_CHARS = 10_000;
+
+  const contentRoot =
+    document.querySelector('article') ??
+    document.querySelector('[role="main"]') ??
+    document.querySelector('main') ??
+    document.querySelector('.post-content, .article-content, .entry-content, #content') ??
+    document.body;
+
+  // Clone and strip noise
+  const clone = contentRoot.cloneNode(true) as HTMLElement;
+  const noiseSelectors = [
+    'script', 'style', 'noscript', 'nav', 'footer', 'header', 'aside',
+    '[role="banner"]', '[role="navigation"]', '[role="complementary"]',
+    '.sidebar', '.comments', '.ad', '.advertisement', '.social-share',
+    '.related-posts', '.newsletter-signup', 'iframe',
+  ];
+  clone.querySelectorAll(noiseSelectors.join(',')).forEach(el => el.remove());
+
+  const walker = document.createTreeWalker(
+    clone,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) => {
+        const text = node.textContent?.trim();
+        if (!text || text.length < 3) return NodeFilter.FILTER_SKIP;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    }
+  );
+
+  const textParts: string[] = [];
+  let totalLength = 0;
+  let node = walker.nextNode();
+
+  while (node && totalLength < MAX_INDEX_CHARS) {
+    const text = node.textContent?.trim() ?? '';
+    if (text.length > 0) {
+      textParts.push(text);
+      totalLength += text.length;
+    }
+    node = walker.nextNode();
+  }
+
+  return {
+    url: window.location.href,
+    title: document.title,
+    content: textParts.join(' ').slice(0, MAX_INDEX_CHARS),
+  };
+}
+
 // ─── Message Listener ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(
@@ -106,7 +160,15 @@ chrome.runtime.onMessage.addListener(
         type: 'PAGE_CONTEXT',
         payload: extractPageContext(),
       });
-      return false; // synchronous
+      return false;
+    }
+
+    if (message.type === 'GET_PAGE_CONTENT_FOR_INDEX') {
+      sendResponse({
+        type: 'PAGE_CONTENT_FOR_INDEX',
+        payload: extractPageContentForIndex(),
+      });
+      return false;
     }
 
     return false;
