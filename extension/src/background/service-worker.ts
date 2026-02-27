@@ -118,17 +118,77 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ─── Context Menu ─────────────────────────────────────────────────────────────
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== 'edgeai-index-page' || !tab?.id) return;
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'GET_PAGE_CONTENT_FOR_INDEX',
+    });
+
+    if (!response?.payload?.content) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+        title: 'EdgeAI',
+        message: 'Could not extract content from this page.',
+      });
+      return;
+    }
+
+    const { url, title, content } = response.payload;
+
+    await ensureOffscreenDocument();
+    await chrome.runtime.sendMessage({
+      type: 'INDEX_DOCUMENT',
+      _target: 'offscreen',
+      payload: {
+        content,
+        metadata: {
+          title: title || url,
+          source: 'web_page',
+          sourcePath: url,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      },
+    });
+
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+      title: 'EdgeAI',
+      message: `Indexing "${title}"...`,
+    });
+  } catch (err) {
+    console.error('[SW] Context menu index error:', err);
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+      title: 'EdgeAI',
+      message: 'Failed to index this page. Make sure the page has loaded completely.',
+    });
+  }
+});
+
 // ─── Install / Update ─────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(async (details) => {
+  // Create context menu for indexing pages
+  chrome.contextMenus.create({
+    id: 'edgeai-index-page',
+    title: 'Index this page with EdgeAI',
+    contexts: ['page'],
+  });
+
   if (details.reason === 'install') {
-    // Open onboarding tab on first install
     await chrome.tabs.create({
       url: chrome.runtime.getURL('src/popup/popup.html'),
     });
   }
 
-  // Pre-create the offscreen document so first query is instant
   await ensureOffscreenDocument().catch(console.error);
 });
 

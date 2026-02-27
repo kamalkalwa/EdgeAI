@@ -29,6 +29,8 @@ export type MessageType =
   | 'VOICE_ERROR'
   | 'GET_PAGE_CONTEXT'
   | 'PAGE_CONTEXT'
+  | 'GET_PAGE_CONTENT_FOR_INDEX'
+  | 'PAGE_CONTENT_FOR_INDEX'
   | 'RETRY_INIT';
 
 export interface Message<T = unknown> {
@@ -69,7 +71,7 @@ export interface ChatError {
 
 // ─── Documents & Chunks ───────────────────────────────────────────────────────
 
-export type DocumentSource = 'obsidian' | 'pdf' | 'bookmark' | 'notion' | 'google_drive' | 'manual' | 'voice_note';
+export type DocumentSource = 'obsidian' | 'pdf' | 'bookmark' | 'web_page' | 'notion' | 'google_drive' | 'manual' | 'voice_note';
 
 export interface DocumentMetadata {
   id: string;
@@ -222,3 +224,23 @@ export interface PageContext {
   selectedText?: string;
   visibleText?: string;       // truncated visible content
 }
+
+export interface PageContentForIndex {
+  url: string;
+  title: string;
+  content: string;
+}
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+export interface EdgeAISettings {
+  ttsEnabled: boolean;          // auto-speak assistant responses
+  ttsSpeed: number;             // 0.8 – 1.5, default 1.0
+  ttsVoiceName: string | null;  // null = system default
+}
+
+export const DEFAULT_SETTINGS: EdgeAISettings = {
+  ttsEnabled: false,
+  ttsSpeed: 1.0,
+  ttsVoiceName: null,
+};

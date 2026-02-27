@@ -11,7 +11,7 @@
       --surface-hover: #242424;
       --border: #2a2a2a;
       --text: #e8e8e8;
-      --text-muted: #888;
+      --text-muted: #9a9a9a;
       --accent: #6366f1;       /* indigo-500 */
       --accent-hover: #818cf8;
       --green: #22c55e;
@@ -289,8 +289,8 @@
       30% { transform: translateY(-6px); opacity: 1; }
     }
 
-    /* Markdown in assistant messages */
-    .message.assistant pre.md-code-block {
+    /* ── Markdown in assistant messages (marked output) ─────── */
+    .message.assistant pre {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -300,26 +300,127 @@
       font-family: 'SF Mono', 'Fira Code', monospace;
       overflow-x: auto;
       white-space: pre;
-      display: block;
     }
 
-    .message.assistant code.md-inline-code {
+    .message.assistant code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+    }
+
+    .message.assistant :not(pre) > code {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 4px;
       padding: 1px 5px;
-      font-size: 12px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
     }
 
-    .message.assistant ul.md-list {
+    .message.assistant ul, .message.assistant ol {
       margin: 4px 0;
       padding-left: 18px;
-      list-style: disc;
+    }
+    .message.assistant ul { list-style: disc; }
+    .message.assistant ol { list-style: decimal; }
+    .message.assistant li { margin: 2px 0; }
+
+    .message.assistant strong { font-weight: 600; color: var(--text); }
+    .message.assistant em { font-style: italic; }
+
+    .message.assistant h1, .message.assistant h2, .message.assistant h3,
+    .message.assistant h4, .message.assistant h5, .message.assistant h6 {
+      font-weight: 600;
+      margin: 8px 0 4px;
+      color: var(--text);
+    }
+    .message.assistant h1 { font-size: 16px; }
+    .message.assistant h2 { font-size: 15px; }
+    .message.assistant h3 { font-size: 14px; }
+
+    .message.assistant a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .message.assistant a:hover { text-decoration: underline; }
+
+    .message.assistant blockquote {
+      border-left: 3px solid var(--accent);
+      padding: 2px 10px;
+      margin: 6px 0;
+      color: var(--text-muted);
     }
 
-    .message.assistant ul.md-list li { margin: 2px 0; }
-    .message.assistant strong { font-weight: 600; color: var(--text); }
+    .message.assistant table {
+      border-collapse: collapse;
+      margin: 6px 0;
+      font-size: 12px;
+      width: 100%;
+    }
+    .message.assistant th, .message.assistant td {
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      text-align: left;
+    }
+    .message.assistant th {
+      background: var(--surface);
+      font-weight: 600;
+    }
+
+    .message.assistant p { margin: 4px 0; }
+
+    /* ── Code block wrapper (header + copy button) ────────── */
+    .code-block-wrapper {
+      position: relative;
+      margin: 6px 0;
+    }
+
+    .code-block-wrapper pre {
+      margin: 0;
+      border-radius: 0 0 6px 6px;
+    }
+
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+      padding: 4px 10px;
+      font-size: 11px;
+    }
+
+    .code-lang {
+      color: var(--text-muted);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      text-transform: lowercase;
+    }
+
+    .code-copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 2px 8px;
+      cursor: pointer;
+      transition: all 0.15s var(--transition-smooth);
+    }
+    .code-copy-btn:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    /* ── Streaming cursor ─────────────────────────────────── */
+    .streaming-cursor {
+      display: inline;
+      color: var(--accent);
+      animation: cursorBlink 0.8s step-end infinite;
+    }
+
+    @keyframes cursorBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
 
     /* ── Input Bar ───────────────────────────────────────────────── */
     .input-bar {
@@ -1021,6 +1122,250 @@
       border-color: var(--red);
       color: var(--red);
     }
+
+    /* ── Settings Panel ──────────────────────────────────────── */
+    .settings-panel {
+      position: absolute;
+      inset: 0;
+      background: var(--bg);
+      z-index: 11;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s var(--transition-smooth);
+    }
+    .settings-panel.open { transform: translateX(0); }
+
+    .settings-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .settings-body {
+      flex: 1;
+      overflow-y: auto;
+      padding-bottom: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .settings-section {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .settings-section h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 13px;
+    }
+
+    .setting-label { color: var(--text); }
+    .setting-value { color: var(--text-muted); font-size: 12px; }
+
+    .toggle-switch {
+      position: relative;
+      width: 36px; height: 20px;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: var(--border); border-radius: 20px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: ''; position: absolute;
+      width: 16px; height: 16px; left: 2px; bottom: 2px;
+      background: var(--text); border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+    .settings-range { width: 100px; accent-color: var(--accent); }
+
+    .settings-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 12px;
+      padding: 4px 8px;
+      max-width: 180px;
+    }
+
+    .settings-btn {
+      width: 100%;
+      padding: 8px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+      margin-top: 6px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .settings-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+    .settings-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+    /* ── Toast Notification ───────────────────────────────────── */
+    .index-toast {
+      position: fixed;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text);
+      box-shadow: var(--shadow-md);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 200;
+      max-width: 320px;
+      text-align: center;
+    }
+    .index-toast.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ── Message Action Bar (TTS speak button) ────────────────── */
+    .message-actions {
+      display: flex;
+      gap: 4px;
+      margin-top: 4px;
+      margin-left: 32px;
+    }
+    .message-actions.hidden { display: none; }
+
+    .msg-action-btn {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 3px 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+    .msg-action-btn:hover {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--text);
+    }
+    .msg-speak-btn.speaking {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    /* ── Onboarding Wizard ────────────────────────────────────── */
+    .onboarding {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 20px;
+      text-align: center;
+      height: 100%;
+      justify-content: center;
+      gap: 16px;
+      animation: msgIn 0.3s ease-out;
+    }
+
+    .onboarding-step { display: none; width: 100%; }
+    .onboarding-step.active { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+    .onboarding-icon {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: var(--accent-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .onboarding-title { font-size: 16px; font-weight: 600; color: var(--text); }
+
+    .onboarding-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 280px;
+    }
+
+    .onboarding-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      max-width: 260px;
+      margin-top: 8px;
+    }
+
+    .onboarding-btn {
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .onboarding-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+    .onboarding-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      justify-content: center;
+      font-weight: 500;
+    }
+    .onboarding-btn.primary:hover { background: var(--accent-hover); }
+
+    .onboarding-skip {
+      margin-top: 8px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .onboarding-skip:hover { color: var(--text); }
+
+    .onboarding-dots { display: flex; gap: 6px; margin-top: 12px; }
+    .onboarding-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.2s;
+    }
+    .onboarding-dot.active { background: var(--accent); }
   </style>
 </head>
 <body>
@@ -1034,6 +1379,14 @@
       <button class="btn-header" id="btn-new-chat" title="New chat">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+      <button class="btn-header" id="btn-index-tab" title="Index this tab">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="12" y1="12" x2="12" y2="18"/>
+          <line x1="9" y1="15" x2="15" y2="15"/>
         </svg>
       </button>
       <button class="btn-header" id="btn-history" title="Chat history">
@@ -1105,6 +1458,68 @@
           </svg>
           <div>Your private AI assistant</div>
           <div style="font-size:11px; margin-top:2px; opacity:0.7;">All data stays on your device. Ask anything or try voice input.</div>
+        </div>
+      </div>
+
+      <!-- Onboarding Wizard (first run only) -->
+      <div class="onboarding" id="onboarding" style="display:none;">
+        <div class="onboarding-step active" id="onboarding-step-1">
+          <div class="onboarding-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div class="onboarding-title">Your AI runs entirely on this device</div>
+          <div class="onboarding-subtitle">Nothing leaves your machine. No accounts, no API keys, no tracking. Your data stays yours.</div>
+          <div class="onboarding-actions">
+            <button class="onboarding-btn primary" id="onboarding-next-1">Get Started</button>
+          </div>
+          <button class="onboarding-skip" id="onboarding-skip">Skip setup</button>
+          <div class="onboarding-dots">
+            <span class="onboarding-dot active"></span>
+            <span class="onboarding-dot"></span>
+            <span class="onboarding-dot"></span>
+          </div>
+        </div>
+        <div class="onboarding-step" id="onboarding-step-2">
+          <div class="onboarding-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="onboarding-title">Let's make it yours</div>
+          <div class="onboarding-subtitle">Import some of your data so EdgeAI can give you personalized answers.</div>
+          <div class="onboarding-actions">
+            <button class="onboarding-btn" id="onboarding-import-obsidian"><span>🗃️</span> <span>Import Obsidian Vault</span></button>
+            <button class="onboarding-btn" id="onboarding-import-pdf"><span>📄</span> <span>Upload a PDF</span></button>
+            <button class="onboarding-btn" id="onboarding-index-tab"><span>🌐</span> <span>Index Current Tab</span></button>
+          </div>
+          <button class="onboarding-skip" id="onboarding-skip-2">I'll do this later</button>
+          <div class="onboarding-dots">
+            <span class="onboarding-dot"></span>
+            <span class="onboarding-dot active"></span>
+            <span class="onboarding-dot"></span>
+          </div>
+        </div>
+        <div class="onboarding-step" id="onboarding-step-3">
+          <div class="onboarding-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+              <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+            </svg>
+          </div>
+          <div class="onboarding-title">Try asking a question</div>
+          <div class="onboarding-subtitle" id="onboarding-suggestion">Ask anything about your imported data, or try a general question.</div>
+          <div class="onboarding-actions">
+            <button class="onboarding-btn" id="onboarding-suggested-q" style="display:none;"></button>
+            <button class="onboarding-btn primary" id="onboarding-done">Start chatting</button>
+          </div>
+          <div class="onboarding-dots">
+            <span class="onboarding-dot"></span>
+            <span class="onboarding-dot"></span>
+            <span class="onboarding-dot active"></span>
+          </div>
         </div>
       </div>
 
@@ -1206,6 +1621,85 @@
     </div>
 
   </div>
+
+  <!-- ── Settings Panel (global overlay) ────────────────────────────── -->
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-header">
+      <span style="font-weight:600; font-size:13px;">Settings</span>
+      <button class="modal-close" id="settings-panel-close" aria-label="Close settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-section">
+        <h4>Model</h4>
+        <div class="setting-row">
+          <span class="setting-label">Current model</span>
+          <span class="setting-value" id="settings-model-name">Phi-3.5-mini (Q4)</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Size</span>
+          <span class="setting-value" id="settings-model-size">~2.3 GB</span>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h4>Voice Output</h4>
+        <div class="setting-row">
+          <span class="setting-label">Auto-speak responses</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="setting-tts-toggle" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Speed</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <input type="range" id="setting-tts-speed" class="settings-range" min="0.8" max="1.5" step="0.1" value="1.0" />
+            <span id="setting-tts-speed-val" class="setting-value">1.0x</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Voice</span>
+          <select id="setting-tts-voice" class="settings-select">
+            <option value="">System default</option>
+          </select>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h4>Storage</h4>
+        <div class="setting-row">
+          <span class="setting-label">Documents</span>
+          <span class="setting-value" id="settings-doc-count">0</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Chunks</span>
+          <span class="setting-value" id="settings-chunk-count">0</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Storage used</span>
+          <span class="setting-value" id="settings-storage-size">--</span>
+        </div>
+        <button class="settings-btn" id="btn-export-data">Export Data (JSON)</button>
+        <button class="settings-btn danger" id="btn-clear-all-data">Clear All Data</button>
+      </div>
+      <div class="settings-section">
+        <h4>About</h4>
+        <div class="setting-row">
+          <span class="setting-label">Version</span>
+          <span class="setting-value">0.1.0</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Source</span>
+          <span class="setting-value"><a href="https://github.com/edgeai/extension" target="_blank" style="color:var(--accent); text-decoration:none;">GitHub</a></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast Notification ──────────────────────────────────────────── -->
+  <div class="index-toast" id="index-toast"></div>
 
   <!-- ── Voice Indicator ────────────────────────────────────────────── -->
   <div class="voice-indicator" id="voice-indicator">

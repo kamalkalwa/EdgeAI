@@ -21,7 +21,7 @@ import type { Message, ChatRequest, IndexDocumentRequest, SearchRequest, IVector
 import { VectorStore } from '@/lib/storage/vector-store';
 import { DocumentStore } from '@/lib/storage/document-store';
 import { EmbeddingModel, RerankerModel } from '@/lib/models/embedding';
-import { WhisperASR, VoiceSession } from '@/lib/voice/asr';
+import { MoonshineASR, VoiceSession } from '@/lib/voice/asr';
 import { SileroVAD } from '@/lib/voice/vad';
 import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
@@ -99,7 +99,7 @@ let _initPromise: Promise<void> | null = null;
 
 // ─── Voice State ──────────────────────────────────────────────────────────────
 
-let whisperAsr: WhisperASR | null = null;
+let moonshineAsr: MoonshineASR | null = null;
 let sileroVad: SileroVAD | null = null;
 let voiceSession: VoiceSession | null = null;
 
@@ -194,6 +194,9 @@ async function initialize(): Promise<void> {
     );
 
     broadcastStatus({ type: 'MODEL_READY', payload: { model: 'llm', modelId } });
+
+    // Pre-load voice models in background (non-blocking) so first mic click is instant
+    ensureVoiceModels().catch(console.warn);
   } catch (error) {
     const rawMsg = error instanceof Error ? error.message : 'Initialization failed';
     initError = humanizeError(rawMsg);
@@ -363,6 +366,14 @@ async function handleIndexDocument(
     createdAt: request.metadata.createdAt ?? now,
   });
 
+  if (chunks.length === 0) {
+    broadcastStatus({
+      type: 'INDEX_ERROR',
+      payload: { error: 'No indexable content found (text too short or empty)', requestId },
+    });
+    return;
+  }
+
   broadcastStatus({
     type: 'INDEX_PROGRESS',
     payload: { documentId: docId, stage: 'embedding', progress: 40, requestId },
@@ -428,27 +439,27 @@ async function handleSearch(request: SearchRequest): Promise<unknown> {
 
 // ─── Voice Handler ────────────────────────────────────────────────────────────
 
-async function ensureVoiceModels(): Promise<{ asr: WhisperASR; vad: SileroVAD }> {
+async function ensureVoiceModels(): Promise<{ asr: MoonshineASR; vad: SileroVAD }> {
   if (!sileroVad) {
     sileroVad = new SileroVAD();
     try {
-      await sileroVad.load((progress) => {
+      await sileroVad.load((progress: number) => {
         broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'vad', progress } });
       });
     } catch (err) {
-      // VAD is optional — VoiceSession skips VAD when isLoaded is false (asr.ts line 161)
+      // VAD is optional — VoiceSession skips VAD when isLoaded is false
       console.warn('[EdgeAI] VAD failed to load (voice will work without it):', err instanceof Error ? err.message : err);
     }
   }
 
-  if (!whisperAsr) {
-    whisperAsr = new WhisperASR();
-    await whisperAsr.load((progress) => {
+  if (!moonshineAsr) {
+    moonshineAsr = new MoonshineASR();
+    await moonshineAsr.load((progress: number) => {
       broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'asr', progress } });
     });
   }
 
-  return { asr: whisperAsr, vad: sileroVad };
+  return { asr: moonshineAsr, vad: sileroVad };
 }
 
 async function handleVoiceStart(): Promise<void> {

@@ -12,7 +12,7 @@
  */
 
 import { create, insertMultiple, search, remove, getByID, type AnyOrama } from '@orama/orama';
-import type { Chunk, SearchFilters } from '@/lib/types';
+import type { Chunk, DocumentSource, SearchFilters } from '@/lib/types';
 
 // Orama schema for chunks
 const CHUNK_SCHEMA = {
@@ -168,11 +168,20 @@ export class VectorStore {
   private async bruteForceANN(
     queryEmbedding: number[],
     topK: number,
-    _filters?: SearchFilters
+    filters?: SearchFilters
   ): Promise<Array<{ id: string; score: number }>> {
     const scores: Array<{ id: string; score: number }> = [];
 
     for (const [id, emb] of this.embeddings) {
+      // Apply filters using the in-memory chunk metadata
+      if (filters) {
+        const chunk = this.oramaChunks.get(id);
+        if (chunk) {
+          if (filters.sources && filters.sources.length > 0 && !filters.sources.includes(chunk.source as DocumentSource)) continue;
+          if (filters.dateFrom !== undefined && chunk.createdAt < filters.dateFrom) continue;
+          if (filters.dateTo !== undefined && chunk.createdAt > filters.dateTo) continue;
+        }
+      }
       scores.push({ id, score: cosineSimilarity(queryEmbedding, emb) });
     }
 
