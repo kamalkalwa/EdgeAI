@@ -3,6 +3,12 @@ import { crx } from '@crxjs/vite-plugin';
 import manifest from './src/manifest.json';
 import { resolve } from 'path';
 import { copyFileSync, mkdirSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
+
+function getGitCommit(): string {
+  try { return execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim(); }
+  catch { return 'unknown'; }
+}
 
 /**
  * Copies ONNX Runtime WASM files to dist/ort/ with their original names.
@@ -38,6 +44,11 @@ function copyOrtWasmFiles(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    __BUILD_COMMIT__: JSON.stringify(getGitCommit()),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __BUILD_VERSION__: JSON.stringify(manifest.version),
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -57,6 +68,7 @@ export default defineConfig({
         offscreen: resolve(__dirname, 'src/offscreen/offscreen.html'),
         stealth: resolve(__dirname, 'src/stealth/stealth.html'),
         'mic-grant': resolve(__dirname, 'src/mic-grant/mic-grant.html'),
+        privacy: resolve(__dirname, 'src/privacy/privacy.html'),
       },
       output: {
         // Keep chunks readable for debugging

@@ -227,7 +227,7 @@ The product has to feel like a thought completing itself, not a tool you pick up
 ```
 
 Every layer stays local:
-- **ASR (speech → text):** `whisper.cpp` compiled to WASM — fully offline, no audio leaves the device
+- **ASR (speech → text):** Moonshine-tiny ONNX via transformers.js — fully offline, no audio leaves the device
 - **LLM (text → answer):** `web-llm` via WebGPU as before
 - **TTS (answer → speech):** Web Speech Synthesis API, built into the browser, no server needed
 - **Memory:** voice transcripts chunked, embedded, and stored in IndexedDB alongside documents
@@ -380,7 +380,7 @@ Every technical decision that matters, evaluated and decided. This is the build 
          ▼
 [Offscreen Document]            ← full DOM, WebGPU access
   ├── web-llm (WebGPU)          ← generative LLM
-  ├── transformers.js (WebGPU)  ← embeddings, Whisper, re-ranker
+  ├── transformers.js (WebGPU)  ← embeddings, Moonshine ASR, re-ranker
   └── PGlite / hnswlib          ← vector store (IndexedDB backed)
 ```
 
@@ -402,7 +402,7 @@ Every technical decision that matters, evaluated and decided. This is the build 
 |---|---|---|---|---|
 | Primary generative LLM | **web-llm** | Phi-3.5-mini-q4 or Llama-3.2-3B-q4 | ~2.3GB | Best WebGPU performance (35–60 tok/s on M2). MLC team maintains Chrome extension example. |
 | Embeddings | **transformers.js** | bge-small-en-v1.5 | ~33MB | 5,000+ ONNX models available on HF. 3–6ms/sentence on CPU. |
-| ASR (voice → text) | **transformers.js** | whisper-tiny.en | ~40MB | Sub-realtime on desktop WebGPU. Works on iOS Safari via WebGPU (no SharedArrayBuffer needed). |
+| ASR (voice → text) | **transformers.js** | moonshine-tiny (ONNX) | ~60MB | ~30ms inference on desktop. Per-module dtype: encoder fp32, decoder q4/q8. VAD-gated segment transcription. |
 | Re-ranking | **transformers.js** | ms-marco-MiniLM-L-6-v2 int8 | ~22MB | 200–500ms for 10 candidates. Pre-exported ONNX at huggingface.co/Xenova. |
 | CPU fallback (weak hardware) | **wllama** | Llama-3.2-1B-q4 GGUF | ~0.7GB | Pure WASM, no WebGPU required. 8–15 tok/s — slow but functional. |
 | Vision / screenshots (Phase 2) | **transformers.js** | moondream2 or Phi-3-vision | ~2.5GB | Enables image/screenshot Q&A locally. |
@@ -411,7 +411,7 @@ Every technical decision that matters, evaluated and decided. This is the build 
 
 **Model weights storage:** Cache API (not IndexedDB) — faster for large binary files, survives service worker restarts. web-llm uses Cache API natively. Initial download: 2–4GB, 5–15 minutes on average broadband. Subsequent loads: 3–8 seconds.
 
-**Critical constraint on iOS Safari:** No SharedArrayBuffer (removed in Safari 15.2, never restored). Multi-threaded WASM is impossible on iOS. Use transformers.js + WebGPU only on iOS. whisper-tiny.en runs at ~1–2x realtime on A15+ via WebGPU. No wllama fallback on iOS — offer cloud escalation instead.
+**Critical constraint on iOS Safari:** No SharedArrayBuffer (removed in Safari 15.2, never restored). Multi-threaded WASM is impossible on iOS. Use transformers.js + WebGPU only on iOS. Moonshine-tiny ONNX runs at ~1–2x realtime on A15+ via WebGPU. No wllama fallback on iOS — offer cloud escalation instead.
 
 ---
 
@@ -610,7 +610,7 @@ Nonce: random 192-bit, prepended to ciphertext
 
 ## ADR-009: Voice Pipeline
 
-**Decision: transformers.js Whisper + Web Speech Synthesis API + Silero VAD**
+**Decision: transformers.js Moonshine ASR + Web Speech Synthesis API + Silero VAD**
 
 ```
 Microphone (getUserMedia)
@@ -619,7 +619,7 @@ Microphone (getUserMedia)
 Silero VAD (ONNX, ~1MB)          ← detect speech, skip silence
     │ speech detected
     ▼
-whisper-tiny.en (ONNX + WebGPU)  ← ~0.3-0.5x realtime on desktop
+moonshine-tiny (ONNX)            ← ~30ms inference on desktop
     │ transcript
     ▼
 Intent classification             ← "note that X" vs "ask X" vs "search X"
@@ -638,9 +638,9 @@ Intent classification             ← "note that X" vs "ask X" vs "search X"
         Audio output
 ```
 
-**Silero VAD** (https://github.com/snakers4/silero-vad) — ONNX model, ~1MB, ~1ms inference. Detects voice activity before sending audio to Whisper. Prevents transcribing silence and reduces Whisper calls by 60–80%.
+**Silero VAD** (https://github.com/snakers4/silero-vad) — ONNX model, ~1MB, ~1ms inference. Detects voice activity to gate Moonshine transcription. Each speech segment is transcribed exactly once — zero flickering, zero re-transcription.
 
-**iOS Safari constraints:** No SharedArrayBuffer → multi-threaded WASM unavailable → whisper-tiny ONNX + WebGPU only. Latency: ~1–2x realtime on A15+. Acceptable for voice notes. Not acceptable for real-time meeting transcription on iOS.
+**iOS Safari constraints:** No SharedArrayBuffer → multi-threaded WASM unavailable → Moonshine ONNX + WebGPU only. Latency: ~1–2x realtime on A15+. Acceptable for voice notes. Not acceptable for real-time meeting transcription on iOS.
 
 **Voice note intent detection:** A simple rule-based classifier before calling the LLM: if transcript starts with "note that", "remember", "add note" → store directly without LLM call. This makes voice notes instant (~0ms) even if the LLM is not loaded.
 
@@ -653,7 +653,7 @@ LAYER                   TECHNOLOGY              SIZE        NOTE
 ─────────────────────────────────────────────────────────────────────
 Generative LLM          web-llm (WebGPU)        ~2.3GB      Cache API
 Embeddings              transformers.js ONNX    ~33MB       bge-small-en-v1.5
-ASR                     transformers.js ONNX    ~40MB       whisper-tiny.en
+ASR                     transformers.js ONNX    ~60MB       moonshine-tiny
 Re-ranker               transformers.js ONNX    ~22MB       ms-marco MiniLM int8
 Voice activity          Silero VAD ONNX         ~1MB        silence detection
 CPU LLM fallback        wllama                  ~0.7GB      Llama-3.2-1B q4 GGUF

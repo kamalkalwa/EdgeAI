@@ -26,6 +26,7 @@ import { SileroVAD } from '@/lib/voice/vad';
 import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
 import { nanoid } from '@/lib/utils';
+import { appendAuditEntry } from '@/lib/trust/audit-log';
 
 // ─── ONNX Runtime Configuration for Chrome Extension CSP ────────────────────
 //
@@ -275,6 +276,7 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
 
   // RAG: retrieve relevant context for the last user message.
   let ragChunkCount = 0;
+  let auditChunks: Array<{ documentTitle: string; source: string; score: number }> = [];
   if (useRag && vectorStore && embeddingModel && rerankerModel) {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
     if (lastUserMsg) {
@@ -287,6 +289,11 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
           rerankerModel
         );
         ragChunkCount = context.chunks.length;
+        auditChunks = context.chunks.map((c) => ({
+          documentTitle: c.chunk.metadata.documentTitle,
+          source: c.chunk.metadata.source,
+          score: c.score,
+        }));
         console.log(`[EdgeAI] RAG: found ${ragChunkCount} relevant chunks`);
         if (ragChunkCount > 0) {
           augmentedSystem += '\n\n' + context.systemPromptAddition;
@@ -321,9 +328,11 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
     max_tokens: request.maxTokens ?? 1024,
   });
 
+  let fullResponse = '';
   for await (const chunk of stream) {
     const token = chunk.choices[0]?.delta?.content ?? '';
     if (token) {
+      fullResponse += token;
       chrome.runtime.sendMessage({
         type: 'CHAT_CHUNK',
         payload: { token, requestId },
@@ -336,6 +345,17 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
     type: 'CHAT_DONE',
     payload: { requestId, stats: usage },
   }).catch(() => {});
+
+  // Audit log entry
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+  appendAuditEntry({
+    id: requestId,
+    timestamp: Date.now(),
+    type: 'chat_query',
+    query: lastUserMsg?.content,
+    retrievedChunks: auditChunks.length > 0 ? auditChunks : undefined,
+    responsePreview: fullResponse.slice(0, 200),
+  }).catch(console.error);
 }
 
 // ─── Document Indexing Handler ────────────────────────────────────────────────
@@ -417,6 +437,13 @@ async function handleIndexDocument(
       requestId,
     },
   });
+
+  appendAuditEntry({
+    id: nanoid(),
+    timestamp: Date.now(),
+    type: 'document_index',
+    documentTitle: request.metadata.title,
+  }).catch(console.error);
 }
 
 // ─── Search Handler ───────────────────────────────────────────────────────────
@@ -433,6 +460,18 @@ async function handleSearch(request: SearchRequest): Promise<unknown> {
     rerankerModel,
     { topK: request.topK ?? 5, filters: request.filters }
   );
+
+  appendAuditEntry({
+    id: nanoid(),
+    timestamp: Date.now(),
+    type: 'search',
+    query: request.query,
+    retrievedChunks: context.chunks.map((c) => ({
+      documentTitle: c.chunk.metadata.documentTitle,
+      source: c.chunk.metadata.source,
+      score: c.score,
+    })),
+  }).catch(console.error);
 
   return context.chunks;
 }
@@ -641,18 +680,29 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ acknowledged: true });
         return false;
 
-      case 'DELETE_DOCUMENT':
+      case 'DELETE_DOCUMENT': {
         if (!payload || typeof (payload as { documentId?: string }).documentId !== 'string') {
           sendResponse({ error: 'No documentId' });
           return false;
         }
+        const deleteDocId = (payload as { documentId: string; title?: string }).documentId;
+        const deleteTitle = (payload as { documentId: string; title?: string }).title;
         Promise.all([
-          vectorStore?.deleteByDocumentId((payload as { documentId: string }).documentId),
-          documentStore?.deleteDocument((payload as { documentId: string }).documentId),
+          vectorStore?.deleteByDocumentId(deleteDocId),
+          documentStore?.deleteDocument(deleteDocId),
         ])
-          .then(() => sendResponse({ success: true }))
+          .then(() => {
+            appendAuditEntry({
+              id: nanoid(),
+              timestamp: Date.now(),
+              type: 'document_delete',
+              documentTitle: deleteTitle ?? deleteDocId,
+            }).catch(console.error);
+            sendResponse({ success: true });
+          })
           .catch((err) => sendResponse({ error: err.message }));
         return true;
+      }
 
       default:
         return false;

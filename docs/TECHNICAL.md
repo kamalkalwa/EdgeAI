@@ -63,7 +63,7 @@ EdgeAI is a fully offline, privacy-first Chrome extension (MV3) that runs AI inf
 │  │ • transformers.js (ONNX) → embeddings, ASR, reranker     │   │
 │  │ • Orama → vector + BM25 hybrid search                    │   │
 │  │ • Dexie.js → document metadata (IndexedDB)              │   │
-│  │ • Voice session manager (getUserMedia + Whisper + VAD)   │   │
+│  │ • Voice session manager (getUserMedia + Moonshine + VAD) │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │            ↕ chrome.runtime.sendMessage()                        │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -91,33 +91,34 @@ EdgeAI is a fully offline, privacy-first Chrome extension (MV3) that runs AI inf
 extension/
 ├── src/
 │   ├── background/
-│   │   └── service-worker.ts        # Message router (142 lines)
+│   │   └── service-worker.ts        # Message router (201 lines)
 │   ├── content/
-│   │   └── content-script.ts        # Keepalive + page context (117 lines)
+│   │   └── content-script.ts        # Keepalive + page context (178 lines)
 │   ├── offscreen/
-│   │   └── offscreen.ts             # Inference engine (672 lines)
+│   │   └── offscreen.ts             # Inference engine (682 lines)
 │   ├── popup/
 │   │   ├── popup.html
-│   │   └── popup.ts                 # Main UI controller (1126 lines)
+│   │   └── popup.ts                 # Main UI controller (1654 lines)
 │   ├── lib/
-│   │   ├── types.ts                 # All TypeScript types (225 lines)
-│   │   ├── utils.ts                 # Shared utilities (40 lines)
+│   │   ├── types.ts                 # All TypeScript types (246 lines)
+│   │   ├── utils.ts                 # Shared utilities (39 lines)
 │   │   ├── models/
-│   │   │   └── embedding.ts         # Embedding + reranker models (124 lines)
+│   │   │   └── embedding.ts         # Embedding + reranker models (123 lines)
 │   │   ├── storage/
-│   │   │   ├── vector-store.ts      # Orama vector store (320 lines)
+│   │   │   ├── vector-store.ts      # Orama vector store (328 lines)
 │   │   │   └── document-store.ts    # Dexie.js metadata store (69 lines)
 │   │   ├── retrieval/
-│   │   │   ├── retrieval.ts         # RAG pipeline (172 lines)
-│   │   │   ├── chunker.ts           # Semantic chunker (162 lines)
-│   │   │   └── rrf.ts              # Reciprocal Rank Fusion (59 lines)
+│   │   │   ├── retrieval.ts         # RAG pipeline (171 lines)
+│   │   │   ├── chunker.ts           # Semantic chunker (161 lines)
+│   │   │   └── rrf.ts              # Reciprocal Rank Fusion (58 lines)
 │   │   ├── voice/
-│   │   │   ├── asr.ts              # Whisper ASR + VoiceSession (241 lines)
-│   │   │   └── vad.ts              # Silero VAD (113 lines)
+│   │   │   ├── asr.ts              # Moonshine ASR + VoiceSession (493 lines)
+│   │   │   ├── vad.ts              # Silero VAD (112 lines)
+│   │   │   └── tts.ts              # Web Speech TTS (99 lines)
 │   │   └── connectors/
-│   │       ├── obsidian.ts          # File System Access API (200 lines)
-│   │       ├── pdf.ts               # pdf.js connector (86 lines)
-│   │       └── bookmarks.ts         # Chrome Bookmarks API (185 lines)
+│   │       ├── obsidian.ts          # File System Access API (199 lines)
+│   │       ├── pdf.ts               # pdf.js connector (85 lines)
+│   │       └── bookmarks.ts         # Chrome Bookmarks API (184 lines)
 │   ├── stealth/
 │   │   └── stealth.html             # Picture-in-Picture mode
 │   ├── mic-grant/
@@ -1516,30 +1517,43 @@ Popup: sendMessage({ type: 'VOICE_START' })
     ▼
 Offscreen: handleVoiceStart()
     ├── Check microphone permission (pre-check)
-    ├── Load VAD + Whisper if needed
+    ├── Load VAD + Moonshine if needed
     └── voiceSession.start(callbacks)
         ├── getUserMedia(16kHz, mono)
-        └── MediaRecorder.start(1000ms)
+        └── MediaRecorder.start(250ms)
     │
     ▼
-Every 1 second: ondataavailable
+VAD-gated state machine (processCycle every 250ms)
     │
-    ▼
-processChunksIncrementally()
-    ├── Decode webm → Float32Array
-    ├── VAD: check latest 1s for speech
-    │   └── If 2 silent chunks → auto-stop
-    └── Whisper: transcribe full buffer
-        └── broadcast VOICE_PARTIAL { text }
-            │
-            ▼
-        Popup: fill chat input with partial text
+    ├── WAITING state
+    │   ├── VAD detects speech → transition to SPEAKING
+    │   ├── 3.5s no speech → auto-stop "No speech detected"
+    │   └── 2s after last segment → auto-stop gracefully
+    │
+    ├── SPEAKING state
+    │   ├── VAD detects silence → transition to TRAILING_SILENCE
+    │   ├── >30s continuous → force segment boundary
+    │   └── >5s, every 3s → emit long-speech partial
+    │
+    ├── TRAILING_SILENCE state
+    │   ├── Speech resumes < 400ms → back to SPEAKING
+    │   └── 400ms elapsed → extract segment audio
+    │       │
+    │       ▼
+    │   TRANSCRIBING: Moonshine transcribe(segmentAudio) — once
+    │       ├── Append text to completedSegments[]
+    │       ├── broadcast VOICE_PARTIAL { completedSegments.join(' ') }
+    │       │       │
+    │       │       ▼
+    │       │   Popup: fill chat input (stable, append-only)
+    │       └── transition to WAITING
     │
     ▼
 Stop (user click or auto-stop)
     │
     ▼
-MediaRecorder.onstop
+doFinalTranscription()
+    ├── If mid-speech: transcribe remaining audio
     ├── classifyIntent(finalText) → VoiceIntent
     └── broadcast VOICE_TRANSCRIPT { text, intent }
         │

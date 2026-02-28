@@ -13,7 +13,8 @@
     "activeTab",
     "scripting",
     "unlimitedStorage",
-    "contextMenus"
+    "contextMenus",
+    "webRequest"
   ],
 
   "host_permissions": [
@@ -66,7 +67,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["src/offscreen/offscreen.html", "src/stealth/stealth.html", "src/mic-grant/mic-grant.html", "chunks/*", "assets/*", "ort/*"],
+      "resources": ["src/offscreen/offscreen.html", "src/stealth/stealth.html", "src/mic-grant/mic-grant.html", "src/privacy/privacy.html", "chunks/*", "assets/*", "ort/*"],
       "matches": ["<all_urls>"]
     }
   ],

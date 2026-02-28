@@ -354,7 +354,7 @@ This is what to actually build, with specific technology choices.
 | LLM (text generation) | Phi-3 Mini 3.8B Q4 | ~2.3GB | Best quality/size in class. Outperforms larger models at its task. |
 | LLM fallback (weak hardware) | Gemma 2B Q4 | ~1.5GB | Faster on CPU, smaller memory footprint |
 | Embeddings | `all-MiniLM-L6-v2` via transformers.js | 23MB | Fast, small, good quality. Standard for semantic search. |
-| ASR (speech) | Whisper-base via whisper.cpp WASM | 145MB | Good quality, ~200ms/segment latency. Tiny model (39M) for faster UX. |
+| ASR (speech) | Moonshine-tiny via transformers.js ONNX | ~60MB | ~30ms inference. VAD-gated segment transcription. Per-module dtype (encoder fp32, decoder q4/q8). |
 | Vision (Phase 2) | Phi-3-vision or MiniCPM-V 2B | ~2.5GB | Enables image, screenshot, and PDF-with-images understanding locally |
 
 **On Apple Silicon:** all of these perform 3–5x better than on equivalent Intel hardware due to unified memory architecture. Target Mac users first for best experience.
@@ -539,11 +539,11 @@ The platform is not just local AI + personal documents. It is local AI + the ful
 
 ## Technical Resources for Voice
 
-- **[whisper.cpp (ggml-org)](https://github.com/ggml-org/whisper.cpp)** — C++ Whisper port with working WASM example. Runs fully offline in-browser. The foundation for local ASR.
-- **[whisper.cpp WASM live demo](https://ggml.ai/whisper.cpp/)** — try it to understand current quality and latency
-- **[whisper.wasm TypeScript wrapper](https://github.com/timur00kh/whisper.wasm)** — TypeScript wrapper that brings Whisper to the browser. Cleaner integration than raw C++.
-- **[Real-time Whisper streaming in WASM](https://ggml.ai/whisper.cpp/stream.wasm/)** — streaming transcription, not batch. Required for responsive voice UX.
-- **[AssemblyAI: Offline speech recognition guide](https://www.assemblyai.com/blog/offline-speech-recognition-whisper-browser-node-js)** — practical implementation guide for browser + Node.js Whisper deployment.
+- **[Moonshine (Useful Sensors)](https://github.com/usefulsensors/moonshine)** — Tiny, fast ASR model optimized for on-device inference. ~10x faster than Whisper for equivalent quality.
+- **[Moonshine Web Demo (Hugging Face)](https://github.com/huggingface/transformers.js-examples/tree/main/moonshine-web)** — Official VAD-gated transcription demo. Architecture reference for segment-based transcription.
+- **[Silero VAD](https://github.com/snakers4/silero-vad)** — ONNX voice activity detection (~1MB, ~1ms inference). Enables zero-flickering segment transcription.
+- **[transformers.js (Hugging Face)](https://github.com/huggingface/transformers.js)** — ONNX runtime for browser. Runs Moonshine ASR, embeddings, reranker, and VAD.
+- **[Web Speech API (MDN)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API)** — Built-in browser TTS for voice output. Zero dependencies.
 
 ---
 
