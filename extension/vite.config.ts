@@ -43,6 +43,8 @@ function copyOrtWasmFiles(): Plugin {
   };
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export default defineConfig({
   define: {
     __BUILD_COMMIT__: JSON.stringify(getGitCommit()),
@@ -60,7 +62,14 @@ export default defineConfig({
   ],
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: !isProduction,
+    minify: isProduction ? 'terser' : 'esbuild',
+    terserOptions: isProduction ? {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    } : undefined,
     rollupOptions: {
       input: {
         // Additional HTML entry points beyond what manifest.json specifies

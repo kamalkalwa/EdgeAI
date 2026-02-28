@@ -2,7 +2,7 @@
 
 > **Living document.** Updated as work progresses. For the product vision, see [vision.md](../vision.md). For business strategy, see [strategy.md](strategy.md). For revenue and outreach, see [CUSTOMER-ACQUISITION-PLAYBOOK.md](CUSTOMER-ACQUISITION-PLAYBOOK.md). For technical documentation, see [TECHNICAL.md](TECHNICAL.md).
 
-Last updated: 2026-02-27
+Last updated: 2026-02-28
 
 ---
 
@@ -16,9 +16,9 @@ Last updated: 2026-02-27
 
 ---
 
-## Current State: Milestone 5 Complete — "Make It Personal"
+## Current State: Milestone 6 Complete — "Trust & Enterprise Readiness"
 
-The core engine is built and functional. Local LLM chat, RAG pipeline, document indexing, voice input (VAD-gated Moonshine ASR), TTS output, guided onboarding, settings panel, and "Index this tab" all work. **All Phase 1 "Prove It" milestones are complete.** Next up: Trust Panel (Milestone 6) and MCP Server (Milestone 7).
+The core engine is built and functional. Local LLM chat, RAG pipeline, document indexing, voice input (VAD-gated Moonshine ASR), TTS output, guided onboarding, settings panel, and "Index this tab" all work. The Trust Panel (Milestone 6) adds live network monitoring, audit log, data inventory, build verification, and a privacy policy page. **Next up: Chrome Web Store launch (Milestone 8) then MCP Server (Milestone 7).**
 
 ---
 
@@ -85,35 +85,40 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | TTS voice output (Web Speech Synthesis API) | Done | Moved to Milestone 3 (voice). Markdown stripping, zero libraries. |
 | Settings panel | Done | Model size choice, storage management, clear cache. Persisted via chrome.storage.local. |
 
-### Milestone 6: Trust & Enterprise Readiness (Planned)
+### Milestone 6: Trust & Enterprise Readiness (Done)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Trust Panel — live network monitor | Planned | Show all outbound requests since install. The enterprise demo closer. |
-| Trust Panel — local data inventory | Planned | "X documents, Y chunks, Z conversations, N MB on device" |
-| Trust Panel — audit log | Planned | Locally stored, timestamped record of queries + retrieved context |
-| Trust Panel — open source verification | Planned | Link to repo + commit hash of running version |
-| Privacy policy page | Planned | Required for Chrome Web Store |
+| Phase 0 — Modularize popup.ts | Done | 1,654 → 335 lines. 9 ES modules: state, dom, chat, sessions, documents, voice, settings, onboarding, trust |
+| Trust Panel — open source verification | Done | Build-time commit hash + version via Vite define block |
+| Trust Panel — live data inventory | Done | Docs, chunks, storage quota, chat sessions, model cache files |
+| Trust Panel — live network monitor | Done | `webRequest` API captures all outbound requests. Category badges, filter toggle, "zero external requests" proof |
+| Trust Panel — audit log | Done | Append-only log of every query, search, index, delete. Expandable entries, export JSON, 500-entry FIFO cap |
+| Privacy policy page | Done | Standalone HTML page. Permissions explained. Linked from Trust Panel |
 
-### Milestone 7: MCP Server (Planned)
+### Milestone 8: Chrome Web Store Launch (In Progress)
+
+> Reordered ahead of MCP — distribution first, platform play second.
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Store listing copy (title, description, category) | In Progress | SEO: "local AI assistant", "private AI", "offline AI" |
+| Store assets (screenshots, promo tile) | Planned | 1280x800 screenshots, 440x280 tile |
+| Production build hardening | Planned | Strip console.log, `build:store` script, manifest review |
+| Privacy practices disclosure | Planned | Chrome Web Store privacy form |
+| Demo GIF (network monitor showing zero outbound calls) | Planned | The trust proof |
+| Landing page | Planned | GitHub Pages — hero, demo, enterprise section |
+
+### Milestone 7: MCP Server (Planned — post-launch)
 
 > *"Expose an MCP server from day 1... you stop being an AI product and become the personal context layer that makes all AI products smarter."* — vision.md
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| MCP native messaging host (Go binary) | Planned | ADR-007: ~3MB, binds localhost:3773 |
-| MCP tools: `search_personal_context(query)` | Planned | Exposes RAG pipeline to Claude Desktop, Cursor, etc. |
-| MCP tools: `list_documents()`, `get_document(id)` | Planned | Document browsing from any MCP client |
-| MCP tools: `add_voice_note(text)` | Planned | Voice notes from external clients |
-
-### Milestone 8: Chrome Web Store Launch (Planned)
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Store listing with screenshots | Planned | SEO: "local AI assistant", "private AI", "offline AI" |
-| Landing page (Carrd or Framer) | Planned | Consumer + enterprise versions |
-| Privacy policy | Planned | Required for store listing |
-| Demo GIF (network monitor showing zero outbound calls) | Planned | The trust proof |
+| Native messaging bridge (extension side) | Planned | `chrome.runtime.connectNative` + message forwarding to offscreen doc |
+| Go binary (`edgeai-mcp`) | Planned | MCP stdio server. ~3MB. macOS + Windows. `edgeai-mcp install` registers native host |
+| MCP tools: `edgeai_search`, `edgeai_list_documents`, `edgeai_get_document` | Planned | Semantic search + doc browsing from Claude Desktop, Cursor, etc. |
+| MCP status UI in popup | Planned | Connection state + call count |
 
 ---
 
@@ -211,9 +216,9 @@ Ordered by impact on the vision's core thesis: *"Give away the AI for free. Char
 2. ✅ Guided onboarding — DONE (Milestone 5)
 3. ✅ TTS output — DONE (Milestone 3)
 4. ✅ Settings panel — DONE (Milestone 5)
-5. Trust Panel — the enterprise sales closer (Milestone 6)
-6. MCP server — the platform play, the real moat (Milestone 7)
-7. Chrome Web Store listing — distribution (Milestone 8)
+5. ✅ Trust Panel — DONE (Milestone 6)
+6. Chrome Web Store listing — distribution first (Milestone 8) ← NEXT
+7. MCP server — the platform play, post-launch (Milestone 7)
 8. Side panel mode — persistent UX for page context (Milestone 12)
 9. Voice notes as first-class data — "Note that..." stores directly
 10. Notion + Google Drive connectors — more data sources (Milestone 9)
