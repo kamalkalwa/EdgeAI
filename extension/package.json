@@ -8,6 +8,7 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "build:prod": "NODE_ENV=production vite build",
+    "build:store": "NODE_ENV=production vite build && cd dist && zip -r ../edgeai-chrome-store.zip . -x '*.map' '.vite/*'",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -27,6 +28,7 @@
     "@types/chrome": "^0.0.280",
     "@vitest/ui": "^4.0.18",
     "fake-indexeddb": "^6.2.5",
+    "terser": "^5.46.0",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
     "vitest": "^4.0.18"
