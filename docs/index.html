@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EdgeAI — Your AI. Your Device. Your Data.</title>
+  <meta name="description" content="A fully private AI assistant that runs locally in your browser. No API keys, no accounts, no data leaves your device." />
+  <meta property="og:title" content="EdgeAI — Private AI Assistant" />
+  <meta property="og:description" content="100% local AI. Zero data sent. Runs in your browser." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABXSURBVFhH7c4xAQAgDASxRv496V8ICjBIwm0B/Gl295nZc3a/n919Zvec3e9nd5/dfWb3nN3vZ3ef3X1m95zd72d3n919Zvec3e9nd5/dfWb3nN3vZ/8JuAE7TBIhGMSWNAAAAABJRU5ErkJggg==" />
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --border: #222;
+      --text: #eaeaea;
+      --text-muted: #777;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --green: #22c55e;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Nav */
+    nav {
+      position: fixed; top: 0; width: 100%; z-index: 100;
+      background: rgba(10,10,10,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    nav .logo { font-weight: 700; font-size: 18px; color: var(--accent); }
+    nav .links { display: flex; gap: 24px; align-items: center; }
+    nav .links a { color: var(--text-muted); text-decoration: none; font-size: 14px; transition: color 0.2s; }
+    nav .links a:hover { color: var(--text); }
+    .cta-btn {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .cta-btn:hover { background: var(--accent-hover); }
+    .cta-btn-outline {
+      display: inline-block;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 10px 24px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    .cta-btn-outline:hover { border-color: var(--text-muted); color: var(--text); }
+
+    /* Hero */
+    .hero {
+      padding: 140px 24px 80px;
+      text-align: center;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .hero h1 {
+      font-size: clamp(36px, 5vw, 56px);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 560px;
+      margin: 0 auto 32px;
+    }
+    .hero .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+    .badge-row {
+      display: flex; gap: 16px; justify-content: center; margin-top: 40px; flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 6px 14px;
+      font-size: 13px; color: var(--text-muted);
+    }
+    .badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .badge .dot.green { background: var(--green); }
+    .badge .dot.blue { background: var(--accent); }
+
+    /* Features */
+    .features {
+      padding: 80px 24px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .features h2 {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 48px;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .feature-card h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .feature-card .icon {
+      font-size: 24px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    /* Trust section */
+    .trust {
+      padding: 80px 24px;
+      max-width: 800px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .trust h2 { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
+    .trust p { color: var(--text-muted); margin-bottom: 32px; max-width: 560px; margin-left: auto; margin-right: auto; }
+    .trust-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .trust-stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 16px;
+    }
+    .trust-stat .number {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--green);
+      display: block;
+    }
+    .trust-stat .label {
+      font-size: 13px;
+      color: var(--text-muted);
+      display: block;
+      margin-top: 4px;
+    }
+
+    /* How it works */
+    .how {
+      padding: 80px 24px;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .how h2 { text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 40px; }
+    .steps { list-style: none; counter-reset: step; }
+    .steps li {
+      counter-increment: step;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+    .steps li::before {
+      content: counter(step);
+      flex-shrink: 0;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .steps li div h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .steps li div p { font-size: 14px; color: var(--text-muted); }
+
+    /* Enterprise */
+    .enterprise {
+      padding: 80px 24px;
+      max-width: 800px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .enterprise h2 { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
+    .enterprise p { color: var(--text-muted); max-width: 560px; margin: 0 auto 24px; }
+    .enterprise blockquote {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      padding: 20px 24px;
+      text-align: left;
+      max-width: 560px;
+      margin: 0 auto;
+      font-style: italic;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 600px) {
+      .trust-stats { grid-template-columns: 1fr; }
+      nav .links a:not(.cta-btn) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">EdgeAI</div>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#trust">Trust</a>
+    <a href="#how">How it works</a>
+    <a href="https://github.com/kamalkalwa/EdgeAI" target="_blank">GitHub</a>
+    <a class="cta-btn" href="#install">Install Free</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <h1>Your AI. Your Device. Your Data.</h1>
+  <p>A fully private AI assistant that runs locally in your browser. No API keys, no accounts, no cloud. Your documents, your conversations, your voice — never leave your device.</p>
+  <div class="buttons">
+    <a class="cta-btn" href="#install" id="install">Add to Chrome — Free</a>
+    <a class="cta-btn-outline" href="https://github.com/kamalkalwa/EdgeAI" target="_blank">View Source</a>
+  </div>
+  <div class="badge-row">
+    <span class="badge"><span class="dot green"></span> 100% Local</span>
+    <span class="badge"><span class="dot green"></span> Zero Data Sent</span>
+    <span class="badge"><span class="dot blue"></span> Open Source</span>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <h2>Everything runs on your device</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <span class="icon">&#x1f9e0;</span>
+      <h3>Local AI Model</h3>
+      <p>Phi-3.5-mini (3.8B parameters) runs via WebGPU in your browser. No API calls, no subscriptions, no rate limits.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#x1f4da;</span>
+      <h3>Personal Knowledge Base</h3>
+      <p>Import your Obsidian vault, PDFs, bookmarks, or any web page. EdgeAI indexes everything locally and answers from YOUR context.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#x1f50d;</span>
+      <h3>Hybrid RAG Search</h3>
+      <p>Three-stage retrieval: BM25 keyword + semantic vector search + cross-encoder reranking. Finds the right context every time.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#x1f399;&#xfe0f;</span>
+      <h3>Voice Input & Output</h3>
+      <p>Speak instead of type. On-device speech recognition (Moonshine ASR) and text-to-speech. No audio leaves your browser.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#x1f6e1;&#xfe0f;</span>
+      <h3>Trust Panel</h3>
+      <p>Live network monitor proves zero external requests. Audit log tracks every query. Build hash links to open source code.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#x26a1;</span>
+      <h3>Works Offline</h3>
+      <p>After the one-time model download, EdgeAI works completely offline. No internet required to ask questions or search your docs.</p>
+    </div>
+  </div>
+</section>
+
+<section class="trust" id="trust">
+  <h2>Verifiable privacy, not just promises</h2>
+  <p>Most "private" AI tools ask you to trust them. EdgeAI lets you verify. The Trust Panel shows every network request — after model download, the count is zero.</p>
+  <div class="trust-stats">
+    <div class="trust-stat">
+      <span class="number">0</span>
+      <span class="label">External requests after model download</span>
+    </div>
+    <div class="trust-stat">
+      <span class="number">0</span>
+      <span class="label">Data sent to servers</span>
+    </div>
+    <div class="trust-stat">
+      <span class="number">100%</span>
+      <span class="label">Open source</span>
+    </div>
+  </div>
+</section>
+
+<section class="how" id="how">
+  <h2>Get started in 3 minutes</h2>
+  <ol class="steps">
+    <li>
+      <div>
+        <h4>Install the extension</h4>
+        <p>Add EdgeAI to Chrome. The AI model downloads once (~2.3GB) and is cached locally.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Import your knowledge</h4>
+        <p>Connect your Obsidian vault, drop PDFs, import bookmarks, or click "Index this tab" on any web page.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Ask anything</h4>
+        <p>Questions are answered from YOUR personal context — not generic training data. Type or speak.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h4>Verify it's private</h4>
+        <p>Open the Trust Panel. The network monitor shows zero external requests. The audit log shows every query — stored locally, never transmitted.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="enterprise">
+  <h2>Built for enterprise trust</h2>
+  <p>When your team needs AI but your data can't leave the building, EdgeAI is the answer. Every query, every document, every conversation stays on the user's device.</p>
+  <blockquote>
+    "After Samsung's ChatGPT data leak, we banned all cloud AI tools. EdgeAI gives our team AI capabilities with zero data exposure risk. The network monitor proves it."
+    <br /><br />
+    <strong>— The problem EdgeAI solves for every security-conscious organization</strong>
+  </blockquote>
+</section>
+
+<footer>
+  <p>
+    EdgeAI is open source.
+    <a href="https://github.com/kamalkalwa/EdgeAI">GitHub</a> &middot;
+    <a href="https://github.com/kamalkalwa/EdgeAI/blob/main/extension/src/privacy/privacy.html">Privacy Policy</a>
+  </p>
+  <p style="margin-top: 8px;">&copy; 2026 EdgeAI. Your AI. Your device. Your data.</p>
+</footer>
+
+</body>
+</html>
