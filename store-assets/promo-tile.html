@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 440px;
+    height: 280px;
+    background: linear-gradient(135deg, #0a0a0a 0%, #141428 50%, #0a0a0a 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #eaeaea;
+    overflow: hidden;
+    position: relative;
+  }
+  .glow {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .logo {
+    font-size: 36px;
+    font-weight: 800;
+    color: #6366f1;
+    margin-bottom: 12px;
+    position: relative;
+    z-index: 1;
+  }
+  .tagline {
+    font-size: 16px;
+    font-weight: 600;
+    color: #eaeaea;
+    margin-bottom: 8px;
+    position: relative;
+    z-index: 1;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #777;
+    position: relative;
+    z-index: 1;
+  }
+  .badges {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    position: relative;
+    z-index: 1;
+  }
+  .badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: #999;
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+  }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="logo">EdgeAI</div>
+  <div class="tagline">Your AI. Your Device. Your Data.</div>
+  <div class="subtitle">100% local. Zero data sent. Open source.</div>
+  <div class="badges">
+    <span class="badge"><span class="dot"></span> Private</span>
+    <span class="badge"><span class="dot"></span> Offline</span>
+    <span class="badge"><span class="dot"></span> Free</span>
+  </div>
+</body>
+</html>
