@@ -252,9 +252,20 @@ $('btn-index-tab').addEventListener('click', async () => {
 $('btn-new-chat').addEventListener('click', () => startNewChat());
 $('btn-history').addEventListener('click', () => toggleHistoryPanel());
 $('btn-settings').addEventListener('click', () => openSettingsPanel());
-$('btn-hide').addEventListener('click', () => {
-  // Open stealth (PiP) mode — see stealth page
-  chrome.tabs.create({ url: chrome.runtime.getURL('src/stealth/stealth.html') });
+$('btn-hide').addEventListener('click', async () => {
+  // Open EdgeAI in Chrome Side Panel — side panels are NOT captured
+  // when sharing a specific tab via getDisplayMedia.
+  console.log('[Popup] Hide clicked — opening side panel');
+  try {
+    const windowId = (await chrome.windows.getCurrent()).id!;
+    await (chrome.sidePanel as unknown as {
+      open: (opts: { windowId: number }) => Promise<void>;
+    }).open({ windowId });
+  } catch (err) {
+    console.error('[Popup] Side panel open failed:', err);
+    // Fallback: open stealth tab
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/stealth/stealth.html') });
+  }
   window.close();
 });
 

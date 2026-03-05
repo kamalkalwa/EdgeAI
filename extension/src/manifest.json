@@ -14,7 +14,8 @@
     "scripting",
     "unlimitedStorage",
     "contextMenus",
-    "webRequest"
+    "webRequest",
+    "sidePanel"
   ],
 
   "host_permissions": [
@@ -80,6 +81,10 @@
       },
       "description": "Toggle EdgeAI panel"
     }
+  },
+
+  "side_panel": {
+    "default_path": "src/popup/popup.html?stealth=1"
   },
 
   "minimum_chrome_version": "116"
