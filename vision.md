@@ -2,9 +2,7 @@
 
 > **The "why" — principles, architecture, and product identity.** This document is the north star. It changes rarely. When it does, it means the thesis changed.
 >
-> For business strategy and competitive analysis: see [docs/strategy.md](docs/strategy.md).
 > For milestone tracking, current status, and execution: see [docs/ROADMAP.md](docs/ROADMAP.md).
-> For revenue, outreach templates, and pricing: see [docs/CUSTOMER-ACQUISITION-PLAYBOOK.md](docs/CUSTOMER-ACQUISITION-PLAYBOOK.md).
 > For complete technical documentation (architecture, data flows, algorithms): see [docs/TECHNICAL.md](docs/TECHNICAL.md).
 
 ---
