@@ -37,7 +37,9 @@ export type MessageType =
   | 'CLEAR_NETWORK_LOG'
   | 'GET_AUDIT_LOG'
   | 'AUDIT_LOG'
-  | 'CLEAR_AUDIT_LOG';
+  | 'CLEAR_AUDIT_LOG'
+  | 'CHECK_DOCUMENT_EXISTS'
+  | 'CLEAR_ALL_DATA';       // wipe every IndexedDB store (documents, vectors, vault handle)
 
 export interface Message<T = unknown> {
   type: MessageType;
@@ -195,6 +197,7 @@ export interface VoiceTranscript {
 
 export interface IVectorStore {
   init(): Promise<void>;
+  close(): void;
   addChunks(chunks: Chunk[]): Promise<void>;
   deleteByDocumentId(documentId: string): Promise<void>;
   searchBm25(query: string, limit?: number, filters?: SearchFilters): Promise<Array<Chunk & { id: string }>>;
@@ -214,6 +217,7 @@ export interface IRerankerModel {
 
 export interface IDocumentStore {
   open(): Promise<void>;
+  close(): void;
   addDocument(doc: DocumentMetadata): Promise<void>;
   deleteDocument(id: string): Promise<void>;
   getDocument(id: string): Promise<DocumentMetadata | undefined>;

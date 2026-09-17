@@ -1588,7 +1588,7 @@ doFinalTranscription()
 |---|---|---|---|
 | `@mlc-ai/web-llm` | ^0.2.79 | — | WebGPU LLM inference (Phi-3.5, Llama-3.2) |
 | `@huggingface/transformers` | ^3.3.3 | — | ONNX models (embeddings, reranker, Moonshine ASR, Silero VAD) |
-| `@orama/orama` | ^3.0.0 | ~500KB | BM25 + HNSW vector search, in-memory |
+| `@orama/orama` | ^3.0.0 | ~500KB | BM25 full-text search, in-memory (vector search is our own brute-force cosine) |
 | `compromise` | ^14.14.3 | — | NLP sentence splitting for semantic chunking |
 | `dexie` | ^4.0.10 | — | IndexedDB wrapper for document metadata |
 | `marked` | ^15.0.0 | — | Markdown → HTML rendering for chat messages |

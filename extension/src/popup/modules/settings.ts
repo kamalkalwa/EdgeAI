@@ -67,6 +67,36 @@ function closeSettingsPanel(): void {
   settingsPanel.classList.remove('open');
 }
 
+/**
+ * Two-click confirmation for destructive buttons: the first click arms the
+ * button and shows `armedLabel` for a few seconds, the second runs `action`.
+ * The button is disabled while the action runs; from then on the action owns
+ * the label (it may restore it, or leave a final state and reload the page).
+ */
+function confirmThenRun(btn: HTMLButtonElement, armedLabel: string, action: () => Promise<void>): void {
+  const idleLabel = btn.textContent ?? '';
+  let disarmTimer: ReturnType<typeof setTimeout> | undefined;
+  btn.addEventListener('click', async () => {
+    if (btn.dataset['armed'] !== 'true') {
+      btn.dataset['armed'] = 'true';
+      btn.textContent = armedLabel;
+      disarmTimer = setTimeout(() => {
+        delete btn.dataset['armed'];
+        btn.textContent = idleLabel;
+      }, 4000);
+      return;
+    }
+    clearTimeout(disarmTimer);
+    delete btn.dataset['armed'];
+    btn.disabled = true;
+    try {
+      await action();
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 export function initSettingsListeners(): void {
   $('settings-panel-close').addEventListener('click', closeSettingsPanel);
 
@@ -102,21 +132,43 @@ export function initSettingsListeners(): void {
     showToast('Data exported');
   });
 
-  $('btn-clear-all-data').addEventListener('click', async () => {
-    const btn = $('btn-clear-all-data') as HTMLButtonElement;
-    if (btn.dataset['confirm'] !== 'true') {
-      btn.textContent = 'Are you sure? Click again to confirm';
-      btn.dataset['confirm'] = 'true';
-      setTimeout(() => {
-        btn.textContent = 'Clear All Data';
-        delete btn.dataset['confirm'];
-      }, 3000);
+  const clearBtn = $('btn-clear-all-data') as HTMLButtonElement;
+  confirmThenRun(clearBtn, 'Are you sure? Click again to confirm', async () => {
+    clearBtn.textContent = 'Clearing…';
+
+    // 1. Documents, chunks, embeddings and the saved vault handle are IndexedDB
+    //    databases owned by the offscreen document; only it can close and delete them.
+    const res = await chrome.runtime.sendMessage({ type: 'CLEAR_ALL_DATA' }).catch(() => null);
+    if (res?.success !== true) {
+      // Either the offscreen reported an error or the service-worker relay failed
+      // ({ type: 'CLEAR_ALL_DATA_ERROR', payload: { error } }). Stop here: clearing
+      // chrome.storage while the databases still hold data would misreport "cleared".
+      clearBtn.textContent = 'Clear All Data';
+      showToast(`Could not clear documents: ${res?.error ?? res?.payload?.error ?? 'no response from engine'}`);
       return;
     }
+    // 2. The network log is held in service-worker memory as well as storage.
+    await chrome.runtime.sendMessage({ type: 'CLEAR_NETWORK_LOG' }).catch(() => null);
+    // 3. Chat sessions, audit log, settings, onboarding flag.
     await chrome.storage.local.clear().catch(console.error);
-    btn.textContent = 'All data cleared';
-    delete btn.dataset['confirm'];
-    showToast('All data cleared');
-    setTimeout(() => { btn.textContent = 'Clear All Data'; }, 2000);
+
+    clearBtn.textContent = 'All data cleared';
+    showToast('All data cleared — reloading');
+    setTimeout(() => location.reload(), 1200);
+  });
+
+  const modelsBtn = $('btn-delete-models') as HTMLButtonElement;
+  confirmThenRun(modelsBtn, 'Re-downloads ~2.4 GB next launch — click again', async () => {
+    modelsBtn.textContent = 'Deleting…';
+    try {
+      // web-llm and transformers.js keep model files in the Cache API, same origin as this popup
+      const names = await caches.keys();
+      await Promise.all(names.map((n) => caches.delete(n)));
+      showToast('Model files deleted. They download again next time EdgeAI starts.');
+    } catch (err) {
+      showToast(`Could not delete model cache: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    modelsBtn.textContent = 'Delete Downloaded Models';
+    populateSettingsStorage();
   });
 }

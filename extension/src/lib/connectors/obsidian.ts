@@ -10,10 +10,10 @@
  * - Incremental re-indexing (skip files unchanged since last index)
  */
 
+import { FS_HANDLE_DB_NAME } from '@/lib/storage/db-names';
 import type { IndexDocumentRequest } from '@/lib/types';
 
 const IDB_HANDLE_KEY = 'obsidian-vault-handle';
-const IDB_DB_NAME = 'edgeai-fs-handles';
 const IDB_STORE = 'handles';
 
 
@@ -29,14 +29,19 @@ interface FrontMatter {
 
 async function openHandleDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_DB_NAME, 1);
+    const req = indexedDB.open(FS_HANDLE_DB_NAME, 1);
     req.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(IDB_STORE)) {
         db.createObjectStore(IDB_STORE);
       }
     };
-    req.onsuccess = (e) => resolve((e.target as IDBOpenDBRequest).result);
+    req.onsuccess = (e) => {
+      const db = (e.target as IDBOpenDBRequest).result;
+      // Close when Clear All Data deletes this database, so the delete isn't blocked
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
 }

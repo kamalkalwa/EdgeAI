@@ -209,7 +209,22 @@ $('btn-index-tab').addEventListener('click', async () => {
     }
 
     const { url, title, content } = response.payload as { url: string; title: string; content: string };
-    showToast(`Indexing "${title}"…`, 15000);
+
+    // Check if this URL is already indexed — if so, delete old version first
+    const existsCheck = await chrome.runtime.sendMessage({
+      type: 'CHECK_DOCUMENT_EXISTS',
+      payload: { sourcePath: url },
+    }).catch(() => null);
+
+    if (existsCheck?.exists && existsCheck.documentId) {
+      showToast(`Re-indexing "${title}" with latest content…`, 15000);
+      await chrome.runtime.sendMessage({
+        type: 'DELETE_DOCUMENT',
+        payload: { documentId: existsCheck.documentId },
+      }).catch(() => {});
+    } else {
+      showToast(`Indexing "${title}"…`, 15000);
+    }
 
     const reqId = nanoid();
     await chrome.runtime.sendMessage({

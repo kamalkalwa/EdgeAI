@@ -12,7 +12,8 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "fetch:model-libs": "node scripts/fetch-model-libs.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.3.3",

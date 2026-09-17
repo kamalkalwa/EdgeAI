@@ -68,7 +68,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["src/offscreen/offscreen.html", "src/stealth/stealth.html", "src/mic-grant/mic-grant.html", "src/privacy/privacy.html", "chunks/*", "assets/*", "ort/*"],
+      "resources": ["chunks/*", "assets/*", "ort/*"],
       "matches": ["<all_urls>"]
     }
   ],

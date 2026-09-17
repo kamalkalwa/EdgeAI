@@ -11,7 +11,7 @@
  */
 
 import type { Message } from '@/lib/types';
-import { categorizeRequest, appendEntry, type NetworkEntry } from '@/lib/trust/network-monitor';
+import { categorizeRequest, appendEntry, isOwnRequest, type NetworkEntry } from '@/lib/trust/network-monitor';
 
 const OFFSCREEN_URL = chrome.runtime.getURL('src/offscreen/offscreen.html');
 let creatingOffscreen: Promise<void> | null = null;
@@ -154,6 +154,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const { url, title, content } = response.payload;
 
     await ensureOffscreenDocument();
+
+    // Check for existing indexed version — delete old before re-indexing
+    const existsCheck = await chrome.runtime.sendMessage({
+      type: 'CHECK_DOCUMENT_EXISTS',
+      _target: 'offscreen',
+      payload: { sourcePath: url },
+    }).catch(() => null);
+
+    if (existsCheck?.exists && existsCheck.documentId) {
+      await chrome.runtime.sendMessage({
+        type: 'DELETE_DOCUMENT',
+        _target: 'offscreen',
+        payload: { documentId: existsCheck.documentId },
+      }).catch(() => {});
+    }
+
     await chrome.runtime.sendMessage({
       type: 'INDEX_DOCUMENT',
       _target: 'offscreen',
@@ -173,7 +189,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon128.png'),
       title: 'EdgeAI',
-      message: `Indexing "${title}"...`,
+      message: existsCheck?.exists ? `Re-indexing "${title}" with latest content...` : `Indexing "${title}"...`,
     });
   } catch (err) {
     console.error('[SW] Context menu index error:', err);
@@ -187,15 +203,30 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // ─── Network Monitor ─────────────────────────────────────────────────────────
+//
+// Only requests EdgeAI itself makes are recorded. `webRequest` with <all_urls>
+// reports every request from every tab; recording those would make the "zero
+// external requests" proof meaningless the moment the user opens a website,
+// and turn a privacy extension into a browsing-history log. See isOwnRequest().
+
+const EXT_ORIGIN = chrome.runtime.getURL('').replace(/\/$/, '');
 
 // In-memory network log — persisted to chrome.storage.local periodically
 let networkLog: NetworkEntry[] = [];
 let networkLogDirty = false;
 
-// Load persisted log on startup
+// Load the persisted log. Entries written by builds that predate the initiator
+// filter may belong to other sites — drop them. Requests that completed while
+// this read was in flight are already in memory — keep them.
 chrome.storage.local.get('networkLog').then((result) => {
-  if (Array.isArray(result.networkLog)) {
-    networkLog = result.networkLog;
+  if (!Array.isArray(result.networkLog)) return;
+  const stored = (result.networkLog as NetworkEntry[]).filter((e) => isOwnRequest(e.url, e.initiator, EXT_ORIGIN));
+  const recordedMeanwhile = networkLog;
+  networkLog = stored;
+  for (const entry of recordedMeanwhile) appendEntry(networkLog, entry);
+  if (stored.length !== result.networkLog.length) {
+    networkLogDirty = true;
+    persistNetworkLog();
   }
 }).catch(() => {});
 
@@ -211,10 +242,7 @@ setInterval(persistNetworkLog, 10_000);
 // Record completed requests
 chrome.webRequest.onCompleted.addListener(
   (details) => {
-    // Skip extension-internal resource loads (HTML, JS, CSS)
-    if (details.url.startsWith('chrome-extension://') && details.type !== 'xmlhttprequest') {
-      return;
-    }
+    if (!isOwnRequest(details.url, details.initiator, EXT_ORIGIN)) return;
 
     const entry: NetworkEntry = {
       id: `${details.requestId}-${details.timeStamp}`,
@@ -225,7 +253,7 @@ chrome.webRequest.onCompleted.addListener(
       statusCode: details.statusCode,
       responseSize: 0, // Not available in MV3 without webRequestBlocking
       initiator: details.initiator ?? '',
-      category: categorizeRequest(details.url, details.initiator ?? ''),
+      category: categorizeRequest(details.url),
     };
 
     appendEntry(networkLog, entry);

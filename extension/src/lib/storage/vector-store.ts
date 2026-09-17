@@ -1,16 +1,16 @@
 /**
  * Vector Store — Orama (MVP) (ADR-003)
  *
- * Orama provides:
- * - BM25 full-text search (built-in)
- * - HNSW approximate nearest neighbor vector search (built-in)
- * - RRF hybrid search (built-in, we bypass and use our own for control)
- * - ~500KB bundle, TypeScript-native, no WASM cold-start
+ * Orama provides BM25 full-text search (~500KB bundle, TypeScript-native, no
+ * WASM cold-start). Vector search is our own brute-force cosine over an
+ * in-memory Map of embeddings — fine to ~50K chunks; swap for an ANN index
+ * (PGlite+pgvector, hnswlib-wasm) beyond that. RRF fusion is ours too.
  *
  * Persistence: Orama is in-memory. We serialize to IndexedDB via raw IDB
  * and reload on startup. At >50K chunks, migrate to PGlite+pgvector.
  */
 
+import { VECTOR_DB_NAME } from './db-names';
 import { create, insertMultiple, search, remove, getByID, type AnyOrama } from '@orama/orama';
 import type { Chunk, DocumentSource, SearchFilters } from '@/lib/types';
 
@@ -42,7 +42,6 @@ type OramaChunk = {
 };
 
 const IDB_STORE_NAME = 'orama-vector-store';
-const IDB_DB_NAME = 'edgeai-vector';
 const IDB_VERSION = 1;
 
 export class VectorStore {
@@ -200,7 +199,7 @@ export class VectorStore {
     if (this.idb) return this.idb;
 
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_DB_NAME, IDB_VERSION);
+      const req = indexedDB.open(VECTOR_DB_NAME, IDB_VERSION);
 
       req.onupgradeneeded = (e) => {
         const db = (e.target as IDBOpenDBRequest).result;
@@ -211,6 +210,11 @@ export class VectorStore {
 
       req.onsuccess = (e) => {
         this.idb = (e.target as IDBOpenDBRequest).result;
+        // Let indexedDB.deleteDatabase() (Clear All Data) proceed instead of blocking on us
+        this.idb.onversionchange = () => {
+          this.idb?.close();
+          this.idb = null;
+        };
         resolve(this.idb);
       };
 
