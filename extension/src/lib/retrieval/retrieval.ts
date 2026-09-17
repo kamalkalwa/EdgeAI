@@ -3,7 +3,7 @@
  *
  * Three-stage hybrid retrieval:
  *   Stage 1: BM25 full-text search (Orama)
- *   Stage 2: ANN vector search (Orama HNSW)
+ *   Stage 2: vector search (brute-force cosine over in-memory embeddings)
  *   Stage 3: Cross-encoder re-ranking (ms-marco-MiniLM-L-6-v2)
  *   Fusion:  RRF k=60
  */

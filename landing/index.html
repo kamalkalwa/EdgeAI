@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EdgeAI — Private AI Assistant for Chrome</title>
+  <meta name="description" content="EdgeAI is a fully private AI assistant that runs 100% on your device. Chat, search your documents, use voice — no API keys, no cloud, no data leaves your browser." />
+  <meta name="keywords" content="private AI, local AI, offline AI assistant, Chrome extension, personal AI, no cloud AI, on-device AI, WebGPU" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="EdgeAI — Private AI Assistant" />
+  <meta property="og:description" content="Your AI. Your device. Your data. Runs fully offline in Chrome." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="assets/og-image.png" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="EdgeAI — Private AI Assistant" />
+  <meta name="twitter:description" content="100% local AI assistant for Chrome. No cloud. No API keys. No data leaves your device." />
+
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111114;
+      --surface-2: #1a1a1f;
+      --border: #222228;
+      --text: #eaeaea;
+      --text-muted: #888;
+      --text-dim: #555;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --green: #22c55e;
+      --green-dim: rgba(34, 197, 94, 0.12);
+      --red: #ef4444;
+      --red-dim: rgba(239, 68, 68, 0.12);
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      --max-w: 960px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Layout ─────────────────────────────────────── */
+
+    .container {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section {
+      padding: 80px 0;
+    }
+
+    /* ─── Nav ────────────────────────────────────────── */
+
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+
+    .nav-logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-cta {
+      background: var(--accent);
+      color: #fff !important;
+      padding: 6px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+
+    .nav-cta:hover { background: var(--accent-hover); }
+
+    /* ─── Hero ───────────────────────────────────────── */
+
+    .hero {
+      padding: 140px 0 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(99,102,241,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 56px);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      position: relative;
+    }
+
+    .hero h1 .accent { color: var(--accent); }
+
+    .hero .subtitle {
+      font-size: clamp(16px, 2.5vw, 20px);
+      color: var(--text-muted);
+      max-width: 560px;
+      margin: 0 auto 32px;
+      line-height: 1.5;
+    }
+
+    .hero-badges {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #fff;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.2s, transform 0.15s;
+    }
+
+    .hero-cta:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .hero-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-size: 14px;
+      text-decoration: none;
+      margin-left: 16px;
+      transition: color 0.2s;
+    }
+
+    .hero-secondary:hover { color: var(--text); }
+
+    /* ─── Trust Proof ────────────────────────────────── */
+
+    .trust-proof {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 32px;
+      max-width: 520px;
+      margin: 48px auto 0;
+      text-align: left;
+    }
+
+    .trust-proof-header {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--green);
+      margin-bottom: 12px;
+    }
+
+    .trust-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      font-size: 13px;
+    }
+
+    .trust-row .label { color: var(--text-muted); }
+
+    .trust-row .value {
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .trust-row .value.green { color: var(--green); }
+    .trust-row .value.red { color: var(--red); }
+
+    /* ─── Features ───────────────────────────────────── */
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      transition: border-color 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+
+    .feature-icon {
+      font-size: 24px;
+      margin-bottom: 12px;
+    }
+
+    .feature-card h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .feature-card p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ─── How It Works ───────────────────────────────── */
+
+    .section-title {
+      font-size: clamp(24px, 4vw, 32px);
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .section-subtitle {
+      color: var(--text-muted);
+      font-size: 16px;
+      margin-bottom: 48px;
+      max-width: 540px;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 32px;
+      counter-reset: step;
+    }
+
+    .step {
+      counter-increment: step;
+      position: relative;
+      padding-left: 48px;
+    }
+
+    .step::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 32px;
+      height: 32px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .step h4 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .step p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ─── Comparison ─────────────────────────────────── */
+
+    .comparison {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .comparison-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .comparison-header > div {
+      padding: 12px 16px;
+      text-align: center;
+    }
+
+    .comparison-header > div:first-child {
+      text-align: left;
+      color: var(--text-muted);
+    }
+
+    .comparison-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .comparison-row:last-child { border-bottom: none; }
+
+    .comparison-row > div {
+      padding: 10px 16px;
+      text-align: center;
+    }
+
+    .comparison-row > div:first-child {
+      text-align: left;
+      color: var(--text-muted);
+    }
+
+    .check { color: var(--green); }
+    .cross { color: var(--red); }
+
+    /* ─── Enterprise ─────────────────────────────────── */
+
+    .enterprise-section {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .enterprise-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+
+    .enterprise-item h4 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .enterprise-item p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ─── CTA ────────────────────────────────────────── */
+
+    .final-cta {
+      text-align: center;
+      padding: 100px 0;
+    }
+
+    .final-cta h2 {
+      font-size: clamp(24px, 4vw, 36px);
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .final-cta p {
+      color: var(--text-muted);
+      font-size: 16px;
+      margin-bottom: 32px;
+    }
+
+    /* ─── Footer ─────────────────────────────────────── */
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0;
+    }
+
+    footer .container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    footer .copyright {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    footer .links {
+      display: flex;
+      gap: 20px;
+      list-style: none;
+    }
+
+    footer .links a {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    footer .links a:hover { color: var(--text); }
+
+    /* ─── Responsive ─────────────────────────────────── */
+
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      section { padding: 60px 0; }
+      .hero { padding: 100px 0 60px; }
+      .trust-proof { padding: 20px; }
+      .comparison-row > div,
+      .comparison-header > div { padding: 8px 10px; font-size: 12px; }
+      .hero-secondary { display: block; margin: 12px auto 0; }
+      .step { padding-left: 40px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="container">
+    <a href="#" class="nav-logo">EdgeAI</a>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how-it-works">How it works</a></li>
+      <li><a href="#compare">Compare</a></li>
+      <li><a href="#enterprise">Enterprise</a></li>
+      <li><a href="https://github.com/kamalkalwa/EdgeAI" target="_blank">GitHub</a></li>
+      <li><a href="#install" class="nav-cta">Install</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <h1>
+      <span class="accent">Private AI</span> that never<br />leaves your device
+    </h1>
+    <p class="subtitle">
+      Chat with a local AI, search your documents, use voice — all running 100% on your machine. No API keys. No accounts. No cloud.
+    </p>
+
+    <div class="hero-badges">
+      <span class="badge"><span class="dot"></span> 100% Local</span>
+      <span class="badge"><span class="dot"></span> Works Offline</span>
+      <span class="badge"><span class="dot"></span> Open Source</span>
+      <span class="badge"><span class="dot"></span> Free</span>
+    </div>
+
+    <a href="#install" class="hero-cta">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.704A5.995 5.995 0 0 1 12 6c1.686 0 3.223.694 4.315 1.812L12 12l8.592-.003A11.952 11.952 0 0 0 12 0zM1.931 13.029A11.96 11.96 0 0 0 12 24c3.786 0 7.169-1.756 9.368-4.501l-3.953-6.704A5.995 5.995 0 0 1 12 18a5.98 5.98 0 0 1-4.315-1.812L12 12l-8.592.003a12.08 12.08 0 0 0-1.477 1.026z"/></svg>
+      Add to Chrome
+    </a>
+    <a href="https://github.com/kamalkalwa/EdgeAI" class="hero-secondary" target="_blank">
+      View source on GitHub &rarr;
+    </a>
+
+    <!-- Trust proof widget -->
+    <div class="trust-proof">
+      <div class="trust-proof-header">Network Activity (Live Proof)</div>
+      <div class="trust-row">
+        <span class="label">External API calls</span>
+        <span class="value green">0 requests</span>
+      </div>
+      <div class="trust-row">
+        <span class="label">Data sent to servers</span>
+        <span class="value green">0 bytes</span>
+      </div>
+      <div class="trust-row">
+        <span class="label">Telemetry / analytics</span>
+        <span class="value green">None</span>
+      </div>
+      <div class="trust-row">
+        <span class="label">Model downloads (first run only)</span>
+        <span class="value" style="color: var(--text-muted)">Hugging Face CDN</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="container">
+    <h2 class="section-title">Everything runs on your machine</h2>
+    <p class="section-subtitle">No servers. No subscriptions. No data leaves your browser. Ever.</p>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>Local AI Chat</h3>
+        <p>Phi-3.5-mini runs via WebGPU directly in your browser. Multi-turn conversations with streaming responses. Works completely offline after first setup.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📚</div>
+        <h3>Search Your Documents</h3>
+        <p>Import Obsidian vaults, PDFs, or Chrome bookmarks. Ask questions about YOUR data using 3-stage hybrid retrieval (BM25 + vector + reranker).</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🎤</div>
+        <h3>Voice Input & Output</h3>
+        <p>Moonshine ASR with VAD-gated transcription. Speak your questions, hear answers read back. All processing on-device.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🌐</div>
+        <h3>Index Any Web Page</h3>
+        <p>Click "Index this tab" or right-click any page. Content is extracted, chunked, embedded, and stored locally for instant retrieval.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Built-in Trust Panel</h3>
+        <p>Live network monitor proves zero outbound requests. Audit log tracks every operation. Build hash verifies source code integrity.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Side Panel Mode</h3>
+        <p>Pin EdgeAI to Chrome's side panel. Use it alongside any web page without switching tabs. Invisible to screen sharing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- How It Works -->
+<section id="how-it-works" style="background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="container">
+    <h2 class="section-title">Up and running in 3 minutes</h2>
+    <p class="section-subtitle">First launch downloads ~2.5GB of model files. After that, everything works offline.</p>
+
+    <div class="steps">
+      <div class="step">
+        <h4>Install the extension</h4>
+        <p>Add EdgeAI from the Chrome Web Store. No account needed. No API keys.</p>
+      </div>
+      <div class="step">
+        <h4>Models load automatically</h4>
+        <p>Embeddings (33MB) and LLM (2.3GB) download once from Hugging Face and cache locally.</p>
+      </div>
+      <div class="step">
+        <h4>Import your data</h4>
+        <p>Onboarding guides you to import your Obsidian vault, PDFs, or bookmarks.</p>
+      </div>
+      <div class="step">
+        <h4>Ask about YOUR stuff</h4>
+        <p>Ask a question that only your personal data can answer. That's the magic moment.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Comparison -->
+<section id="compare">
+  <div class="container">
+    <h2 class="section-title">EdgeAI vs. the cloud</h2>
+    <p class="section-subtitle">What you give up with cloud AI, and what you keep with EdgeAI.</p>
+
+    <div class="comparison">
+      <div class="comparison-header">
+        <div></div>
+        <div style="color: var(--accent);">EdgeAI</div>
+        <div style="color: var(--text-muted);">Cloud AI</div>
+      </div>
+      <div class="comparison-row">
+        <div>Data stays on device</div>
+        <div class="check">Yes</div>
+        <div class="cross">No</div>
+      </div>
+      <div class="comparison-row">
+        <div>Works offline</div>
+        <div class="check">Yes</div>
+        <div class="cross">No</div>
+      </div>
+      <div class="comparison-row">
+        <div>No account required</div>
+        <div class="check">Yes</div>
+        <div class="cross">No</div>
+      </div>
+      <div class="comparison-row">
+        <div>No API key / subscription</div>
+        <div class="check">Free</div>
+        <div class="cross">$20/mo+</div>
+      </div>
+      <div class="comparison-row">
+        <div>Search your documents</div>
+        <div class="check">Yes</div>
+        <div style="color: var(--text-muted);">Limited</div>
+      </div>
+      <div class="comparison-row">
+        <div>Verifiable privacy</div>
+        <div class="check">Trust Panel</div>
+        <div class="cross">Trust us</div>
+      </div>
+      <div class="comparison-row">
+        <div>Model quality</div>
+        <div style="color: var(--text-muted);">Good (3B)</div>
+        <div class="check">Best</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Enterprise -->
+<section id="enterprise" class="enterprise-section">
+  <div class="container">
+    <h2 class="section-title">Built for teams that can't afford leaks</h2>
+    <p class="section-subtitle">Legal, healthcare, finance, defense — industries where "private by policy" isn't enough. You need "private by architecture."</p>
+
+    <div class="enterprise-grid">
+      <div class="enterprise-item">
+        <h4>Zero-egress architecture</h4>
+        <p>No data ever leaves the device. Network monitor provides auditable proof for compliance teams.</p>
+      </div>
+      <div class="enterprise-item">
+        <h4>No vendor lock-in</h4>
+        <p>Open source. No accounts. No cloud dependency. Deploy via Chrome enterprise policy (MDM).</p>
+      </div>
+      <div class="enterprise-item">
+        <h4>Audit everything</h4>
+        <p>Every query, search, and document operation is logged locally. Export JSON for compliance review.</p>
+      </div>
+      <div class="enterprise-item">
+        <h4>Works in air-gapped networks</h4>
+        <p>After initial model download, zero internet required. Pre-load models for fully disconnected deployments.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tech Stack -->
+<section>
+  <div class="container">
+    <h2 class="section-title">Under the hood</h2>
+    <p class="section-subtitle">State-of-the-art models, running in your browser.</p>
+
+    <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+      <div class="feature-card">
+        <h3>LLM</h3>
+        <p>Phi-3.5-mini (3.8B) via web-llm + WebGPU. Llama-3.2-1B fallback for lower-end hardware.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Embeddings</h3>
+        <p>bge-small-en-v1.5 (384-dim) via ONNX Runtime. Fast semantic understanding.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Reranker</h3>
+        <p>ms-marco-MiniLM cross-encoder via ONNX. Precision re-scoring for retrieval.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Voice</h3>
+        <p>Moonshine-tiny ASR + Silero VAD. Real-time transcription on-device.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Vector Store</h3>
+        <p>Orama BM25 + brute-force cosine vector search, persisted in IndexedDB. Fused with RRF, then cross-encoder reranked.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Chunking</h3>
+        <p>Semantic chunking via compromise.js NLP + embedding similarity boundaries.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Final CTA -->
+<section class="final-cta" id="install">
+  <div class="container">
+    <h2>Your AI should work for you,<br />not the other way around</h2>
+    <p>Install EdgeAI. Import your data. Ask it something only you would know.</p>
+    <a href="#" class="hero-cta">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.704A5.995 5.995 0 0 1 12 6c1.686 0 3.223.694 4.315 1.812L12 12l8.592-.003A11.952 11.952 0 0 0 12 0zM1.931 13.029A11.96 11.96 0 0 0 12 24c3.786 0 7.169-1.756 9.368-4.501l-3.953-6.704A5.995 5.995 0 0 1 12 18a5.98 5.98 0 0 1-4.315-1.812L12 12l-8.592.003a12.08 12.08 0 0 0-1.477 1.026z"/></svg>
+      Add to Chrome — Free
+    </a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <span class="copyright">EdgeAI &mdash; Your AI. Your device. Your data.</span>
+    <ul class="links">
+      <li><a href="https://github.com/kamalkalwa/EdgeAI" target="_blank">GitHub</a></li>
+      <li><a href="privacy.html">Privacy Policy</a></li>
+      <li><a href="https://github.com/kamalkalwa/EdgeAI/issues" target="_blank">Report Issue</a></li>
+    </ul>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -12,25 +12,39 @@ export interface NetworkEntry {
   statusCode: number;
   responseSize: number;
   initiator: string;
-  category: 'model_download' | 'extension_internal' | 'user_fetch' | 'unknown';
+  category: 'model_download' | 'extension_internal' | 'unknown';
 }
 
 const MAX_ENTRIES = 1000;
 
-export function categorizeRequest(url: string, initiator: string): NetworkEntry['category'] {
-  // Model downloads from Hugging Face CDN
-  if (url.includes('huggingface.co') || url.includes('cdn-lfs') || url.includes('hf.co')) {
-    return 'model_download';
+/**
+ * True for requests EdgeAI made itself. `initiator` is the origin that issued
+ * the request; extension pages (popup, side panel, offscreen document) and the
+ * service worker all report the extension's own origin. Loads of the
+ * extension's bundled files are not network activity.
+ */
+export function isOwnRequest(url: string, initiator: string | undefined, extensionOrigin: string): boolean {
+  return initiator === extensionOrigin && !url.startsWith('chrome-extension://');
+}
+
+/**
+ * Hugging Face and its cdn-lfs / xet download mirrors: the only place the
+ * extension fetches from at runtime (model weights, on first use). Anything
+ * else the extension requests is reported as external activity — that is the
+ * whole point of the Trust Panel, so this list stays exact.
+ */
+function isModelHost(hostname: string): boolean {
+  return hostname === 'huggingface.co' || hostname.endsWith('.huggingface.co')
+    || hostname === 'hf.co' || hostname.endsWith('.hf.co');
+}
+
+export function categorizeRequest(url: string): NetworkEntry['category'] {
+  if (url.startsWith('chrome-extension://')) return 'extension_internal';
+  try {
+    return isModelHost(new URL(url).hostname) ? 'model_download' : 'unknown';
+  } catch {
+    return 'unknown';
   }
-  // Internal extension resources
-  if (url.startsWith('chrome-extension://')) {
-    return 'extension_internal';
-  }
-  // User-initiated content fetches (bookmarks, web pages)
-  if (initiator && initiator.startsWith('chrome-extension://')) {
-    return 'user_fetch';
-  }
-  return 'unknown';
 }
 
 export function appendEntry(

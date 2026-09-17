@@ -6,6 +6,7 @@
  * This is the source of truth for the "Documents" panel in the popup.
  */
 
+import { DOCUMENT_DB_NAME } from './db-names';
 import Dexie, { type EntityTable } from 'dexie';
 import type { DocumentMetadata } from '@/lib/types';
 
@@ -13,7 +14,7 @@ class EdgeAIDatabase extends Dexie {
   documents!: EntityTable<DocumentMetadata, 'id'>;
 
   constructor() {
-    super('edgeai');
+    super(DOCUMENT_DB_NAME);
 
     this.version(1).stores({
       documents: 'id, source, createdAt, updatedAt',
@@ -35,6 +36,11 @@ export class DocumentStore {
 
   async open(): Promise<void> {
     await this.db.open();
+  }
+
+  /** Release the IndexedDB connection so the database can be deleted. */
+  close(): void {
+    this.db.close();
   }
 
   async addDocument(doc: DocumentMetadata): Promise<void> {

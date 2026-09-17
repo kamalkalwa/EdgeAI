@@ -2,8 +2,10 @@ import { defineConfig, type Plugin } from 'vite';
 import { crx } from '@crxjs/vite-plugin';
 import manifest from './src/manifest.json';
 import { resolve } from 'path';
-import { copyFileSync, mkdirSync, existsSync } from 'fs';
+import { copyFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
+import { resolveModelLibs, OUT_DIR as MODEL_LIB_DIR, INDEX_FILE as MODEL_LIB_INDEX } from './scripts/model-libs.mjs';
 
 function getGitCommit(): string {
   try { return execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim(); }
@@ -43,6 +45,38 @@ function copyOrtWasmFiles(): Plugin {
   };
 }
 
+/**
+ * Fails the build if the web-llm model libraries are not bundled.
+ *
+ * web-llm would otherwise fetch them from raw.githubusercontent.com at runtime,
+ * which is remotely hosted code — not allowed in a Chrome Web Store extension.
+ * `npm run fetch:model-libs` downloads them into public/mlc/ (Vite copies
+ * public/ into dist/) and records their URLs + hashes in libs.json, which the
+ * offscreen document uses to seed web-llm's cache.
+ */
+function verifyModelLibs(): Plugin {
+  return {
+    name: 'verify-model-libs',
+    buildStart() {
+      const hint = 'run `npm run fetch:model-libs` and rebuild';
+      const indexPath = resolve(MODEL_LIB_DIR, MODEL_LIB_INDEX);
+      if (!existsSync(indexPath)) throw new Error(`Bundled web-llm model libraries missing (${indexPath}) — ${hint}`);
+      const index = JSON.parse(readFileSync(indexPath, 'utf-8')) as { libs: { url: string; file: string; sha256: string }[] };
+      for (const lib of resolveModelLibs().libs) {
+        const bundled = index.libs.find((l) => l.url === lib.url);
+        const file = bundled ? resolve(MODEL_LIB_DIR, bundled.file) : null;
+        if (!bundled || !file || !existsSync(file)) {
+          throw new Error(`Bundled model library for ${lib.modelId} is missing or does not match the installed web-llm (${lib.url}) — ${hint}`);
+        }
+        const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
+        if (sha256 !== bundled.sha256) {
+          throw new Error(`${bundled.file} does not match the hash recorded in ${MODEL_LIB_INDEX} (corrupt or partial download) — ${hint}`);
+        }
+      }
+    },
+  };
+}
+
 const isProduction = process.env.NODE_ENV === 'production';
 
 export default defineConfig({
@@ -59,6 +93,7 @@ export default defineConfig({
   plugins: [
     crx({ manifest }),
     copyOrtWasmFiles(),
+    verifyModelLibs(),
   ],
   build: {
     outDir: 'dist',

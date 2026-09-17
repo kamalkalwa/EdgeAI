@@ -10,8 +10,8 @@
  *
  * Stack:
  * - web-llm (WebGPU)          → generative LLM
- * - transformers.js (ONNX)    → embeddings, Whisper ASR, cross-encoder reranker
- * - Orama                     → vector store (BM25 + HNSW hybrid)
+ * - transformers.js (ONNX)    → embeddings, Moonshine ASR, cross-encoder reranker
+ * - Orama + brute-force cosine → hybrid BM25 + vector search
  * - Dexie.js                  → document metadata store (IndexedDB)
  */
 
@@ -27,6 +27,7 @@ import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
 import { nanoid } from '@/lib/utils';
 import { appendAuditEntry } from '@/lib/trust/audit-log';
+import { USER_DATABASES } from '@/lib/storage/db-names';
 
 // ─── ONNX Runtime Configuration for Chrome Extension CSP ────────────────────
 //
@@ -82,6 +83,40 @@ async function withRetry<T>(
 const LLM_MODEL_ID = 'Phi-3.5-mini-instruct-q4f16_1-MLC';
 const LLM_FALLBACK_ID = 'Llama-3.2-1B-Instruct-q4f16_1-MLC';
 
+// ─── Bundled Model Library ───────────────────────────────────────────────────
+//
+// web-llm's prebuilt config points each model's compiled WebGPU library (a
+// .wasm) at GitHub and fetches it on first load. The Web Store forbids running
+// code the package did not ship, and our privacy policy says none is fetched,
+// so the build bundles those files (scripts/fetch-model-libs.mjs → public/mlc/)
+// and we seed web-llm's own cache with the bundled bytes under the URL it will
+// ask for. The Cache API refuses chrome-extension:// keys, which is why the
+// model record's URL stays as is and only the bytes are ours. A missing bundled
+// file is a build defect and fails loudly: web-llm must never reach GitHub.
+//
+// Error messages here avoid the words "fetch" and "network" on purpose —
+// humanizeError() would otherwise report them as connectivity problems.
+
+const MODEL_LIB_CACHE = 'webllm/wasm'; // cache scope name used inside web-llm
+
+interface BundledModelLib { modelId: string; file: string; url: string; sha256: string; bytes: number }
+
+async function seedModelLibCache(modelId: string): Promise<void> {
+  const record = webllm.prebuiltAppConfig.model_list.find((m) => m.model_id === modelId);
+  if (!record) throw new Error(`${modelId} is not in web-llm's prebuilt config`);
+  const cache = await caches.open(MODEL_LIB_CACHE);
+  if (await cache.match(record.model_lib)) return; // already seeded
+
+  const index = (await fetch(chrome.runtime.getURL('mlc/libs.json')).then((r) => r.json())) as { libs: BundledModelLib[] };
+  const lib = index.libs.find((l) => l.url === record.model_lib);
+  if (!lib) throw new Error(`Bundled model library for ${modelId} is missing: this build was packaged without public/mlc/`);
+  const res = await fetch(chrome.runtime.getURL(`mlc/${lib.file}`));
+  if (!res.ok) throw new Error(`Bundled model library ${lib.file} is missing from the package (HTTP ${res.status})`);
+  const body = await res.arrayBuffer();
+  await cache.put(record.model_lib, new Response(body, { headers: { 'Content-Type': 'application/wasm' } }));
+  console.log(`[EdgeAI] Seeded ${lib.file} (${(body.byteLength / 1e6).toFixed(1)} MB) from the extension package`);
+}
+
 // ─── Global State ─────────────────────────────────────────────────────────────
 
 let llmEngine: webllm.MLCEngine | null = null;
@@ -97,6 +132,10 @@ let initError: string | null = null;
 // caller (e.g. LOAD_MODEL message arriving while IIFE is still loading) waits
 // for the first call to complete rather than returning early with half-loaded state.
 let _initPromise: Promise<void> | null = null;
+
+// Set while Clear All Data is deleting the databases. initStoresAndEmbeddings
+// waits for it, so nothing reopens a store that is about to be deleted.
+let _resetPromise: Promise<void> | null = null;
 
 // ─── Voice State ──────────────────────────────────────────────────────────────
 
@@ -122,6 +161,7 @@ let indexQueue: Promise<void> = Promise.resolve();
  * in-flight initialization rather than racing on the null checks.
  */
 async function initStoresAndEmbeddings(): Promise<void> {
+  if (_resetPromise) await _resetPromise;
   if (documentStore && vectorStore && embeddingModel && rerankerModel) return;
 
   // If init is already in progress, join the existing promise rather than
@@ -178,6 +218,8 @@ async function initialize(): Promise<void> {
 
     // Load LLM — this is the big download (2.3GB first time, Cache API thereafter)
     const modelId = await selectModelForHardware();
+    // Throws on a broken build → MODEL_ERROR via the catch below. Never let web-llm download code.
+    await seedModelLibCache(modelId);
     llmEngine = await withRetry(
       () => webllm.CreateMLCEngine(modelId, {
         initProgressCallback: (progress) => {
@@ -236,10 +278,15 @@ async function selectModelForHardware(): Promise<string> {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) return LLM_FALLBACK_ID;
 
-    const info = await adapter.requestAdapterInfo();
+    // Chrome 131+ exposes `adapter.info`; older builds only had requestAdapterInfo().
+    // Without this fallback the call throws on current Chrome and *every* machine
+    // silently gets the 1B model.
+    type AdapterInfoLike = { vendor?: string; architecture?: string };
+    const a = adapter as unknown as { info?: AdapterInfoLike; requestAdapterInfo?: () => Promise<AdapterInfoLike> };
+    const info: AdapterInfoLike = a.info ?? (await a.requestAdapterInfo?.()) ?? {};
     // M1/M2/M3 Apple Silicon handles larger models well
-    const isAppleSilicon = info.vendor?.toLowerCase().includes('apple') ||
-                            info.architecture?.toLowerCase().includes('apple');
+    const isAppleSilicon = (info.vendor ?? '').toLowerCase().includes('apple') ||
+                            (info.architecture ?? '').toLowerCase().includes('apple');
 
     // Check available memory heuristic via VRAM limits
     const limits = adapter.limits;
@@ -568,6 +615,49 @@ async function handleVoiceStart(): Promise<void> {
   }
 }
 
+// ─── Data Reset ───────────────────────────────────────────────────────────────
+
+function deleteDatabase(name: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(name);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error(`Could not delete database ${name}`));
+    // Another context still holds a connection (the popup keeps the vault-handle
+    // database open). Every opener closes itself on `versionchange`, so the
+    // delete completes once they have; nothing to do but wait.
+    req.onblocked = () => console.warn(`[EdgeAI] deleteDatabase(${name}) blocked — waiting for open connections`);
+  });
+}
+
+/**
+ * Wipe every database in USER_DATABASES — documents and chunks, embeddings and
+ * BM25 rows, the saved vault handle — then reopen empty stores so the extension
+ * keeps working without a restart. Model files live in the Cache API and are
+ * deleted separately (Settings → Delete Downloaded Models).
+ *
+ * Order matters: wait for any in-flight init and indexing, close our own
+ * connections, delete, then reinitialise. _resetPromise keeps a concurrent
+ * LOAD_MODEL / RETRY_INIT from reopening a store mid-delete — it would load the
+ * old data and write it straight back into the fresh database.
+ */
+async function clearAllUserData(): Promise<void> {
+  if (!_resetPromise) {
+    _resetPromise = (async () => {
+      if (_initPromise) await _initPromise.catch(() => {});
+      await indexQueue.catch(() => {});
+      vectorStore?.close();
+      documentStore?.close();
+      vectorStore = null;
+      documentStore = null;
+      await Promise.all(USER_DATABASES.map(deleteDatabase));
+    })().finally(() => {
+      _resetPromise = null;
+    });
+  }
+  await _resetPromise;
+  await initStoresAndEmbeddings();
+}
+
 // ─── Message Router ───────────────────────────────────────────────────────────
 // Only handle messages that have _target: 'offscreen' to avoid processing
 // messages from the offscreen document itself.
@@ -679,6 +769,24 @@ chrome.runtime.onMessage.addListener(
         voiceSession?.stop();
         sendResponse({ acknowledged: true });
         return false;
+
+      case 'CHECK_DOCUMENT_EXISTS': {
+        if (!documentStore || !payload) {
+          sendResponse({ exists: false });
+          return false;
+        }
+        const checkPath = (payload as { sourcePath: string }).sourcePath;
+        documentStore.documentExists(checkPath)
+          .then((doc) => sendResponse({ exists: !!doc, documentId: doc?.id }))
+          .catch(() => sendResponse({ exists: false }));
+        return true;
+      }
+
+      case 'CLEAR_ALL_DATA':
+        clearAllUserData()
+          .then(() => sendResponse({ success: true }))
+          .catch((err) => sendResponse({ error: err instanceof Error ? err.message : String(err) }));
+        return true;
 
       case 'DELETE_DOCUMENT': {
         if (!payload || typeof (payload as { documentId?: string }).documentId !== 'string') {

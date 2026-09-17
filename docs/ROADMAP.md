@@ -2,7 +2,7 @@
 
 > **Living document.** Updated as work progresses. For the product vision, see [vision.md](../vision.md). For business strategy, see [strategy.md](strategy.md). For revenue and outreach, see [CUSTOMER-ACQUISITION-PLAYBOOK.md](CUSTOMER-ACQUISITION-PLAYBOOK.md). For technical documentation, see [TECHNICAL.md](TECHNICAL.md).
 
-Last updated: 2026-02-28
+Last updated: 2026-09-17
 
 ---
 
@@ -83,7 +83,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | "Index this tab" button (content script) | Done | Content script extracts 10K chars (noise-stripped), chunked, embedded, stored. requestId correlation for concurrent indexing. |
 | Guided first-run onboarding | Done | On first launch: "Let's make this yours" → pick Obsidian / PDF / bookmarks → index → ask a question from your data. |
 | TTS voice output (Web Speech Synthesis API) | Done | Moved to Milestone 3 (voice). Markdown stripping, zero libraries. |
-| Settings panel | Done | Model size choice, storage management, clear cache. Persisted via chrome.storage.local. |
+| Settings panel | Done | TTS voice/speed, storage stats, document-list export, Clear All Data (IndexedDB + storage), Delete Downloaded Models. No model choice yet — see Technical Debt. |
 
 ### Milestone 6: Trust & Enterprise Readiness (Done)
 
@@ -102,12 +102,13 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Store listing copy (title, description, category) | In Progress | SEO: "local AI assistant", "private AI", "offline AI" |
-| Store assets (screenshots, promo tile) | Planned | 1280x800 screenshots, 440x280 tile |
-| Production build hardening | Planned | Strip console.log, `build:store` script, manifest review |
-| Privacy practices disclosure | Planned | Chrome Web Store privacy form |
-| Demo GIF (network monitor showing zero outbound calls) | Planned | The trust proof |
-| Landing page | Planned | GitHub Pages — hero, demo, enterprise section |
+| Store listing copy (title, description, category) | Done | SEO keywords, detailed description, single-purpose statement. See [STORE-LISTING.md](STORE-LISTING.md) |
+| Production build hardening | Done | Terser (drop_console, drop_debugger), `build:store` zip (15MB, no sourcemaps), manifest WAR tightened |
+| Privacy practices disclosure | Done | Full CWS privacy form answers, permission justifications. See [STORE-LISTING.md](STORE-LISTING.md) |
+| Duplicate detection (Index this tab) | Done | `CHECK_DOCUMENT_EXISTS` message — auto-replaces stale index. Also in context menu handler |
+| Store assets (screenshots, promo tile) | Done | 1280x800 composites (hero + trust), raw popup PNGs, 440x280 promo tile. Puppeteer capture script |
+| Demo GIF (network monitor showing zero outbound calls) | Done | 14s animated GIF: chat → AI response with RAG source → Trust Panel → zero requests proof → audit log. 209KB |
+| Landing page | Done | Single-page site: hero, features, comparison, enterprise, tech stack. See [landing/](../landing/) |
 
 ### Milestone 7: MCP Server (Planned — post-launch)
 
