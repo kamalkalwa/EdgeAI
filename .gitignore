@@ -11,3 +11,6 @@ store-assets/gif-frames/
 landing/screenshot*.png
 # popup captures are intermediates of store-assets/capture-screenshots.mjs (composited into store-screenshot-*.png)
 store-assets/popup-*.png
+# design-guide templates copied into every project root; not EdgeAI documentation
+/HLD.md
+/LLD.md
