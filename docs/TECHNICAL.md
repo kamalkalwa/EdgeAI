@@ -4,8 +4,6 @@
 >
 > For the product vision and principles: see [vision.md](../vision.md).
 > For milestone tracking and current status: see [ROADMAP.md](ROADMAP.md).
-> For business strategy: see [strategy.md](strategy.md).
-> For revenue and outreach: see [CUSTOMER-ACQUISITION-PLAYBOOK.md](CUSTOMER-ACQUISITION-PLAYBOOK.md).
 
 ---
 

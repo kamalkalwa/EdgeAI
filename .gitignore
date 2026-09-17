@@ -14,3 +14,6 @@ store-assets/popup-*.png
 # design-guide templates copied into every project root; not EdgeAI documentation
 /HLD.md
 /LLD.md
+# business planning notes, kept local
+docs/strategy.md
+docs/CUSTOMER-ACQUISITION-PLAYBOOK.md

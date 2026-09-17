@@ -1,6 +1,6 @@
 # EdgeAI — Roadmap
 
-> **Living document.** Updated as work progresses. For the product vision, see [vision.md](../vision.md). For business strategy, see [strategy.md](strategy.md). For revenue and outreach, see [CUSTOMER-ACQUISITION-PLAYBOOK.md](CUSTOMER-ACQUISITION-PLAYBOOK.md). For technical documentation, see [TECHNICAL.md](TECHNICAL.md).
+> **Living document.** Updated as work progresses. For the product vision, see [vision.md](../vision.md). For technical documentation, see [TECHNICAL.md](TECHNICAL.md).
 
 Last updated: 2026-09-17
 
