@@ -8,7 +8,7 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "build:prod": "NODE_ENV=production vite build",
-    "build:store": "NODE_ENV=production vite build && cd dist && zip -r ../edgeai-chrome-store.zip . -x '*.map' '.vite/*'",
+    "build:store": "rm -f edgeai-chrome-store.zip && NODE_ENV=production vite build && cd dist && zip -r ../edgeai-chrome-store.zip . -x '*.map' '.vite/*'",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
