@@ -705,6 +705,7 @@ chrome.runtime.onMessage.addListener(
             llmReady: !!llmEngine,
             modelId: activeModelId,
             embeddingsReady: !!embeddingModel,
+            embeddingsDevice: embeddingModel?.device ?? null,
             storeReady: !!vectorStore,
             error: initError,
           },

@@ -34,7 +34,7 @@ HOW IT WORKS
 
 All AI inference runs locally using WebGPU and WebAssembly:
 - Large language model: Phi-4-mini (3.8B parameters, 2.2GB, cached after first download)
-- Embeddings: bge-small-en-v1.5 (33MB)
+- Embeddings: bge-small-en-v1.5 (130MB, runs on your GPU)
 - Voice: Moonshine-tiny ASR + Silero VAD
 - Retrieval: 3-stage hybrid search (BM25 + vector + reranker)
 

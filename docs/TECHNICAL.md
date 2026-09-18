@@ -522,7 +522,7 @@ The offscreen document only processes messages with `_target: 'offscreen'` to av
 |---|---|
 | **Runtime** | transformers.js 4 (ONNX Runtime 1.31) |
 | **Model** | `Xenova/bge-small-en-v1.5` |
-| **Size** | 33MB |
+| **Size** | 130MB (fp32 `model.onnx`; the 33MB figure quoted earlier was the int8 file, which is not what is loaded) |
 | **Dimensions** | 384 |
 | **Latency** | ~3-6ms per sentence |
 | **Pooling** | Mean pooling, L2 normalized |
