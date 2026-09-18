@@ -205,6 +205,8 @@ export interface IVectorStore {
 }
 
 export interface IEmbeddingModel {
+  /** Backend the model loaded on; null until load() resolves. */
+  device: 'webgpu' | 'wasm' | null;
   load(onProgress?: (progress: number) => void): Promise<void>;
   embed(text: string): Promise<number[]>;
   embedBatch(texts: string[]): Promise<number[][]>;

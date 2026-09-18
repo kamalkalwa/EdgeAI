@@ -33,12 +33,13 @@ import { USER_DATABASES } from '@/lib/storage/db-names';
 //
 // Chrome MV3 CSP (`script-src 'self' 'wasm-unsafe-eval'`) blocks:
 // 1. Dynamic import() of scripts from CDN (only 'self' allowed)
-// 2. Dynamic import() of blob: URLs (used by ONNX Runtime's preload path)
+// 2. Dynamic import() of blob: URLs (ONNX Runtime's multi-thread preload path)
 // 3. Web Worker creation via blob: URLs (worker-src 'self')
 //
-// Fix: Point ONNX Runtime to the extension's own copy of the WASM files
-// (copied by the copyOrtWasmFiles Vite plugin), disable proxy workers, and
-// force single-threaded execution to avoid the multi-thread preload code path.
+// Fix: point ONNX Runtime at the extension's own copy of its runtime files
+// (copied by the copyOrtWasmFiles Vite plugin), disable the proxy worker, and
+// stay single-threaded. ONNX Runtime 1.31 (via transformers.js 4) then loads
+// its module with a plain same-origin import(), on WebGPU as well as WASM.
 
 const onnxEnv = transformersEnv.backends.onnx;
 
@@ -80,7 +81,7 @@ async function withRetry<T>(
 
 // ─── Model Configuration ─────────────────────────────────────────────────────
 
-const LLM_MODEL_ID = 'Phi-3.5-mini-instruct-q4f16_1-MLC';
+const LLM_MODEL_ID = 'Phi-4-mini-instruct-q4f16_1-MLC';
 const LLM_FALLBACK_ID = 'Llama-3.2-1B-Instruct-q4f16_1-MLC';
 
 // ─── Bundled Model Library ───────────────────────────────────────────────────
@@ -120,6 +121,7 @@ async function seedModelLibCache(modelId: string): Promise<void> {
 // ─── Global State ─────────────────────────────────────────────────────────────
 
 let llmEngine: webllm.MLCEngine | null = null;
+let activeModelId: string | null = null; // which LLM actually loaded (default or fallback)
 let vectorStore: IVectorStore | null = null;
 let documentStore: IDocumentStore | null = null;
 let embeddingModel: IEmbeddingModel | null = null;
@@ -189,6 +191,7 @@ async function initStoresAndEmbeddings(): Promise<void> {
         { label: 'embeddings', maxRetries: 3 }
       );
       embeddingModel = em; // assign AFTER load() completes
+      console.log(`[EdgeAI] Embeddings on ${em.device}`);
     }
 
     if (!rerankerModel) {
@@ -216,7 +219,7 @@ async function initialize(): Promise<void> {
     // Stores/embeddings may already be loaded by the auto-init IIFE — skip if so
     await initStoresAndEmbeddings();
 
-    // Load LLM — this is the big download (2.3GB first time, Cache API thereafter)
+    // Load LLM — this is the big download (2.2GB first time, Cache API thereafter)
     const modelId = await selectModelForHardware();
     // Throws on a broken build → MODEL_ERROR via the catch below. Never let web-llm download code.
     await seedModelLibCache(modelId);
@@ -236,6 +239,7 @@ async function initialize(): Promise<void> {
       { label: 'LLM', maxRetries: 2, baseDelay: 2000 }
     );
 
+    activeModelId = modelId;
     broadcastStatus({ type: 'MODEL_READY', payload: { model: 'llm', modelId } });
 
     // Pre-load voice models in background (non-blocking) so first mic click is instant
@@ -291,7 +295,7 @@ async function selectModelForHardware(): Promise<string> {
     // Check available memory heuristic via VRAM limits
     const limits = adapter.limits;
     const maxBufferSize = limits.maxBufferSize;
-    // 2.3GB model needs ~4GB VRAM — check if device looks capable
+    // Phi-4-mini needs ~3.4GB VRAM — check if device looks capable
     const hasEnoughVram = maxBufferSize >= 2 * 1024 * 1024 * 1024;
 
     if (isAppleSilicon || hasEnoughVram) {
@@ -699,6 +703,7 @@ chrome.runtime.onMessage.addListener(
           type: 'STATUS',
           payload: {
             llmReady: !!llmEngine,
+            modelId: activeModelId,
             embeddingsReady: !!embeddingModel,
             storeReady: !!vectorStore,
             error: initError,

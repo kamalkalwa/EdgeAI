@@ -23,7 +23,7 @@ EdgeAI is a fully private AI assistant that runs entirely on your device. No API
 
 WHAT IT DOES
 
-- Chat with a local AI model (Phi-3.5 or Llama-3.2) — works offline after first setup
+- Chat with a local AI model (Phi-4-mini, or Llama-3.2-1B on smaller GPUs) — works offline after first setup
 - Import your Obsidian vault, PDFs, or Chrome bookmarks — ask questions about YOUR data
 - Voice input with real-time transcription (Moonshine ASR)
 - AI reads responses back to you (text-to-speech)
@@ -33,7 +33,7 @@ WHAT IT DOES
 HOW IT WORKS
 
 All AI inference runs locally using WebGPU and WebAssembly:
-- Large language model: Phi-3.5-mini (2.3GB, cached after first download)
+- Large language model: Phi-4-mini (3.8B parameters, 2.2GB, cached after first download)
 - Embeddings: bge-small-en-v1.5 (33MB)
 - Voice: Moonshine-tiny ASR + Silero VAD
 - Retrieval: 3-stage hybrid search (BM25 + vector + reranker)

@@ -29,7 +29,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Chrome extension (MV3) with offscreen doc architecture | Done | ADR-001 implemented exactly |
-| Local LLM via web-llm (Phi-3.5-mini, WebGPU) | Done | Llama-3.2-1B fallback for weak hardware |
+| Local LLM via web-llm (Phi-4-mini, WebGPU) | Done | Llama-3.2-1B fallback for weak hardware. Upgraded from Phi-3.5-mini 2026-09-18 |
 | Streaming chat with multi-turn conversation | Done | 120s timeout, 10-turn context window |
 | Embeddings (bge-small-en-v1.5, ONNX) | Done | 384-dim, ~33MB |
 | Cross-encoder reranker (ms-marco-MiniLM) | Done | ~22MB, ONNX |
@@ -38,7 +38,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | Vector store (Orama + IndexedDB persistence) | Done | BM25 + brute-force cosine (MVP) |
 | Document metadata store (Dexie.js) | Done | Versioned schema |
 | Service worker keepalive (content script ping) | Done | 25s interval |
-| ONNX Runtime CSP workaround (WASM file copy) | Done | Vite plugin |
+| ONNX Runtime CSP workaround (runtime file copy) | Done | Vite plugin; embeddings on WebGPU since transformers.js 4 (2026-09-18) |
 | Prompt injection mitigation (chunk sanitization) | Done | Strip injection patterns, hard cap 1200 chars |
 
 ### Milestone 2: Document Import (Done)

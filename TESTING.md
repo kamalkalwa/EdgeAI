@@ -8,7 +8,7 @@ This guide walks through the full sanity check for all implemented features
 ## 0. Prerequisites
 
 - Chrome 120+ (for WebGPU support; enable at `chrome://flags/#enable-webgpu-developer-features` if needed)
-- Apple Silicon Mac OR a GPU with ≥4 GB VRAM (Phi-3.5-mini requirement)
+- Apple Silicon Mac OR a GPU with ≥4 GB VRAM (Phi-4-mini needs ~3.4 GB)
 - Node.js 20+
 - A small Obsidian vault (5–10 notes) and one PDF file for import tests
 
@@ -47,12 +47,12 @@ npm test                 # expect: 68 passed, 0 failed, ~500ms
 2. The status indicator should show **"Loading embeddings…"** briefly
 3. Within ~30s (first run: ~2 min, downloads 55MB), status shows **"Embeddings ready"**
 4. Click **"Load LLM"** button
-5. A progress bar appears — LLM downloads (~2.3GB first time, uses Cache API thereafter)
-6. Final status: **"Phi-3.5-mini ready"** (or Llama-3.2-1B on low-VRAM hardware)
+5. A progress bar appears — LLM downloads (~2.2GB first time, uses Cache API thereafter)
+6. Final status: **Ready**; Settings → Model shows **Phi-4-mini-instruct (Q4)** (or Llama-3.2-1B-Instruct on low-VRAM hardware)
 
 **Expected console output (offscreen DevTools):**
 ```
-[EdgeAI] Selected model: Phi-3.5-mini-instruct-q4f16_1-MLC
+[EdgeAI] Seeded Phi-4-mini-instruct-q4f16_1_cs1k-webgpu.wasm (5.5 MB) from the extension package
 [EdgeAI offscreen] Model ready
 ```
 

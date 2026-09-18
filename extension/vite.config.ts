@@ -13,13 +13,17 @@ function getGitCommit(): string {
 }
 
 /**
- * Copies ONNX Runtime WASM files to dist/ort/ with their original names.
+ * Copies ONNX Runtime's runtime files to dist/ort/ with their original names.
  *
  * ONNX Runtime dynamically imports its .mjs bootstrap module and fetches the
  * .wasm binary at runtime. In a Chrome extension, CSP blocks loading these from
  * CDN or blob: URLs. By copying them into the extension's own assets and setting
  * wasmPaths to chrome.runtime.getURL('ort/'), ONNX Runtime can load them as
  * same-origin extension resources.
+ *
+ * transformers.js 4 imports `onnxruntime-web/webgpu`, whose 1.31 build uses the
+ * `asyncify` variant for every device (WebGPU and WASM alike). The build fails
+ * if it is missing rather than shipping a package that cannot load a model.
  */
 function copyOrtWasmFiles(): Plugin {
   return {
@@ -30,16 +34,15 @@ function copyOrtWasmFiles(): Plugin {
       if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
       const files = [
-        'ort-wasm-simd-threaded.mjs',
-        'ort-wasm-simd-threaded.wasm',
-        'ort-wasm-simd-threaded.jsep.mjs',
-        'ort-wasm-simd-threaded.jsep.wasm',
+        'ort-wasm-simd-threaded.asyncify.mjs',
+        'ort-wasm-simd-threaded.asyncify.wasm',
       ];
       for (const file of files) {
         const src = resolve(ortDist, file);
-        if (existsSync(src)) {
-          copyFileSync(src, resolve(outDir, file));
+        if (!existsSync(src)) {
+          throw new Error(`ONNX Runtime file missing: ${src} — the installed onnxruntime-web no longer ships it; update copyOrtWasmFiles in vite.config.ts`);
         }
+        copyFileSync(src, resolve(outDir, file));
       }
     },
   };

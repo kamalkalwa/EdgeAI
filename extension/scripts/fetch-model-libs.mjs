@@ -41,5 +41,15 @@ for (const lib of libs) {
   out.push({ ...lib, bytes: buf.length, sha256: sha256(buf) });
 }
 
+// Remove libraries from a previous web-llm version — public/ is copied into
+// the package wholesale, so a stale file here would ship to users.
+const keep = new Set(out.map((l) => l.file));
+for (const f of fs.readdirSync(OUT_DIR)) {
+  if (f.endsWith('.wasm') && !keep.has(f)) {
+    fs.unlinkSync(path.join(OUT_DIR, f));
+    console.log(`remove ${f} (no longer referenced)`);
+  }
+}
+
 fs.writeFileSync(indexPath, JSON.stringify({ webllmVersion, modelVersion, libs: out }, null, 2) + '\n');
 console.log(`index  ${indexPath}`);

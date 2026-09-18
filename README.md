@@ -6,7 +6,7 @@ A Chrome extension that runs a 3.8B language model, an embedding model, a cross-
 
 ## What it does
 
-- Chat with Phi-3.5-mini (4-bit, 4K context) over WebGPU. Machines without roughly 3.7 GB of GPU memory get Llama-3.2-1B instead.
+- Chat with Phi-4-mini (3.8B, 4-bit, 4K context) over WebGPU. Machines without roughly 3.4 GB of GPU memory get Llama-3.2-1B instead.
 - Index an Obsidian vault (File System Access API; the folder handle is remembered), PDFs, text and Markdown files, any open tab (the "Index this tab" button, or right-click → "Index this page with EdgeAI"), and Chrome bookmarks (titles and URLs only).
 - Retrieval per question: BM25 top 20 from Orama and cosine top 20 over bge-small embeddings, fused with reciprocal rank fusion, reranked with ms-marco-MiniLM-L-6, and the top 5 go into the prompt tagged `[SOURCE: title, date]`.
 - Voice: tap the mic, Moonshine-tiny transcribes on-device, Silero VAD decides when you've stopped talking, and replies can be read back with the browser's speech synthesis.
@@ -21,13 +21,13 @@ Chrome Web Store: pending review. Until then, from source:
 git clone https://github.com/kamalkalwa/EdgeAI
 cd EdgeAI/extension
 npm install
-npm run fetch:model-libs   # web-llm's two WebGPU model libraries, 11 MB, into public/mlc/
+npm run fetch:model-libs   # web-llm's two WebGPU model libraries, ~11 MB, into public/mlc/
 npm run build              # → dist/
 ```
 
 chrome://extensions → Developer mode → Load unpacked → `extension/dist`.
 
-First launch downloads about 2.4 GB of weights from huggingface.co (2.3 GB of it is Phi-3.5). They go into the browser's Cache API and are not fetched again. There's a progress bar; go make tea.
+First launch downloads about 2.4 GB of weights from huggingface.co (2.2 GB of it is Phi-4-mini). They go into the browser's Cache API and are not fetched again. There's a progress bar; go make tea.
 
 Needs Chrome 116 or newer with WebGPU on (chrome://gpu should say "WebGPU: Hardware accelerated"). Firefox and Safari aren't supported; this depends on Chrome's offscreen document API.
 
@@ -41,7 +41,7 @@ Retrieved text is untrusted. Chunks are capped at 1200 characters before they en
 
 Three things you'll hit if you fork this:
 
-**The CSP.** Extension pages run under `script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'`, and MV3 won't let you loosen it. ONNX Runtime's WebGPU backend bootstraps through a `blob:` URL and a dynamic `import()`; both are blocked. So the embedding, reranker and speech models run on ONNX's WASM backend, single-threaded (`proxy = false`, `numThreads = 1`), from a copy of the runtime that the build drops into `dist/ort/`. Only the LLM is on the GPU, through web-llm, which doesn't have this problem.
+**The CSP.** Extension pages run under `script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'`, and MV3 won't let you loosen it. ONNX Runtime's older WebGPU backend (JSEP, what transformers.js 3 used) bootstrapped through a `blob:` URL and a dynamic `import()`; both are blocked, which is why the first version ran every ONNX model on a single WASM thread. transformers.js 4 moved to ONNX Runtime 1.31, whose WebGPU build loads with a plain same-origin `import()` as long as you stay single-threaded (`proxy = false`, `numThreads = 1`) and point `wasmPaths` at a copy of the runtime inside the package (`dist/ort/`). Embeddings now run on the GPU with a WASM fallback; the reranker and VAD stay on WASM on purpose — int8 gains nothing there and they'd contend with the LLM for the GPU.
 
 **Remote code.** The Web Store forbids executing code the package didn't ship. web-llm's default config fetches each model's compiled WebGPU library, a `.wasm`, from GitHub at runtime. `npm run fetch:model-libs` downloads the two libraries and writes their URLs and SHA-256 hashes to `public/mlc/libs.json`; at startup the offscreen document copies the bundled bytes into web-llm's cache under the URL web-llm expects, so the download never happens. The build fails if the bundled files don't match the installed web-llm version.
 
@@ -58,7 +58,7 @@ Full policy: https://kamalkalwa.github.io/EdgeAI/privacy.html. No server, no acc
 ```
 npm run dev          # vite build --watch; reload in chrome://extensions
 npm run type-check
-npm test             # 76 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, network log
+npm test             # 78 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, network log
 npm run build:store  # production build + zip; commit first, the Trust Panel shows the build's git hash
 ```
 
@@ -66,10 +66,10 @@ npm run build:store  # production build + zip; commit first, the Trust Panel sho
 
 ## Known limits
 
-- Phi-3.5-mini reads its five chunks well and is a weak general assistant. 4K context: a long document is only ever seen five chunks at a time.
+- Phi-4-mini reads its five chunks well and is a modest general assistant. 4K context: a long document is only ever seen five chunks at a time.
 - No model picker; the choice is made from GPU memory at startup.
 - Indexing the same PDF, text file or vault twice stores it twice. Tabs are deduplicated by URL.
-- Embeddings run on single-threaded WASM, so indexing a large vault is slow. There's a queue and a progress bar.
+- Indexing a large vault takes a while even on the GPU; embeddings are computed one document at a time on purpose (a queue keeps the WebGPU worker from running out of memory). There's a progress bar.
 - Bookmark import indexes titles and URLs, not page contents.
 
 ## License

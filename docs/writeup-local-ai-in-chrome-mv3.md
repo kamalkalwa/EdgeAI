@@ -46,4 +46,10 @@ The point of the extension is that you can check its claims. The Trust Panel has
 
 Vector search is brute-force cosine over a `Map`. The landing page said HNSW for six months; it was never HNSW. Brute force is fine to maybe 50K chunks and the honest thing is to say so.
 
-I'd like the embeddings on the GPU. I'd like to know whether the worklet idea works. And the package bundles the `.jsep` WebGPU build of ONNX Runtime — 21 MB — that, given everything above, is never loaded. It should probably go.
+I'd like to know whether the worklet idea works.
+
+## Postscript, September 18
+
+The embeddings are on the GPU now, and the 21 MB JSEP file is gone. Both came from the same upgrade. transformers.js 4 (February) moved to ONNX Runtime 1.31, and 1.31's WebGPU build no longer needs the `blob:` detour: read the import code and the preload path is only taken when the runtime is multi-threaded *and* the files are cross-origin. Single-threaded, same-origin `wasmPaths` — the configuration I'd already been forced into for WASM — gets a plain `import()` of a `chrome-extension://` URL, which `'self'` allows. Its WebGPU build ships as the `asyncify` variant, one 25 MB file instead of the 11 + 21 I was copying before. The reranker and the VAD I left on WASM; int8 doesn't gain from the GPU and they'd fight the LLM for it.
+
+Same upgrade, the model: Phi-3.5-mini became Phi-4-mini, which is the same family, a slightly smaller download, needs slightly less GPU memory, and is better. Qwen3.5-4B looked stronger on paper and I nearly shipped it, until I grepped web-llm for `enable_thinking` and got nothing. Its reasoning mode is a chat-template switch web-llm doesn't expose, and I wasn't going to debug `<think>` blocks in answers the week of a store submission.
