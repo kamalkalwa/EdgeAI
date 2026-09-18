@@ -2,7 +2,7 @@
  * Embedding + Re-ranking Models via transformers.js (ADR-002)
  *
  * Models:
- * - Embeddings: bge-small-en-v1.5 (33MB, 384-dim, ~3-6ms/sentence)
+ * - Embeddings: bge-small-en-v1.5 (fp32, 130MB download, 384-dim)
  * - Re-ranker:  ms-marco-MiniLM-L-6-v2 int8 (22MB, ~200-500ms for 10 candidates)
  *
  * Embeddings run on WebGPU when available (WASM fallback); the reranker stays on
