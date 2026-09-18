@@ -16,11 +16,11 @@
     "fetch:model-libs": "node scripts/fetch-model-libs.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.3.3",
-    "@mlc-ai/web-llm": "^0.2.79",
+    "@huggingface/transformers": "^4.3.0",
+    "@mlc-ai/web-llm": "^0.2.85",
     "@orama/orama": "^3.0.0",
     "compromise": "^14.14.3",
-    "dexie": "^4.0.10",
+    "dexie": "^4.4.6",
     "marked": "^15.0.0",
     "pdfjs-dist": "^5.4.624"
   },

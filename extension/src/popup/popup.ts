@@ -96,6 +96,12 @@ btnRetry.addEventListener('click', async () => {
   }, 3000);
 });
 
+/** "Phi-4-mini-instruct-q4f16_1-MLC" → "Phi-4-mini-instruct (Q4)" for the Settings panel. */
+function showActiveModel(modelId: string): void {
+  const el = document.getElementById('settings-model-name');
+  if (el) el.textContent = modelId.replace(/-q4f16_1-MLC$/, ' (Q4)').replace(/-MLC$/, '');
+}
+
 chrome.runtime.onMessage.addListener((message: Message) => {
   if (message.type === 'MODEL_PROGRESS') {
     const { model, progress, text } = message.payload as {
@@ -129,7 +135,8 @@ chrome.runtime.onMessage.addListener((message: Message) => {
   }
 
   if (message.type === 'MODEL_READY') {
-    const { model } = message.payload as { model: string; modelId?: string };
+    const { model, modelId } = message.payload as { model: string; modelId?: string };
+    if (modelId) showActiveModel(modelId);
 
     if (model === 'embeddings_and_reranker') {
       state.embeddingsReady = true;
@@ -332,6 +339,7 @@ async function init(): Promise<void> {
     showErrorBanner(status.payload.error);
   } else if (status?.payload?.llmReady) {
     // Both models ready
+    if (status.payload.modelId) showActiveModel(status.payload.modelId);
     state.modelReady = true;
     state.embeddingsReady = true;
     modelLoadingState.style.display = 'none';

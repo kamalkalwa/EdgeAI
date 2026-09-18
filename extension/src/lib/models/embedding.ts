@@ -5,7 +5,8 @@
  * - Embeddings: bge-small-en-v1.5 (33MB, 384-dim, ~3-6ms/sentence)
  * - Re-ranker:  ms-marco-MiniLM-L-6-v2 int8 (22MB, ~200-500ms for 10 candidates)
  *
- * Both use transformers.js ONNX runtime with WebGPU acceleration where available.
+ * Embeddings run on WebGPU when available (WASM fallback); the reranker stays on
+ * WASM — int8 gains nothing on the GPU and it would contend with the LLM.
  */
 
 import {
@@ -19,7 +20,7 @@ import {
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-// transformers.js v3 pipeline() has deeply polymorphic overloads that cause TS2590
+// transformers.js pipeline() has deeply polymorphic overloads that cause TS2590
 // ("union type too complex to represent") when device/dtype literals are inferred.
 // Casting to a simple signature bypasses overload resolution entirely.
 type SimplePipeline = (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown>;
@@ -38,17 +39,33 @@ export class EmbeddingModel {
         }
       : undefined;
 
-    // Use WASM backend only — requesting 'webgpu' causes ONNX Runtime to load its
-    // JSEP (WebGPU) execution-provider module via a dynamically-imported blob: URL,
-    // which Chrome MV3 CSP blocks in extension pages ('blob:' is not allowed in
-    // script-src for extension pages). WASM is fast enough for bge-small-en-v1.5
-    // (33MB) and avoids GPU contention with web-llm which uses WebGPU for the LLM.
-    this.pipe = (await callPipeline('feature-extraction', this.modelId, {
+    // Embeddings are the indexing bottleneck, so they go on the GPU when it's
+    // there. transformers.js 4 / ONNX Runtime 1.31 load the WebGPU runtime with a
+    // plain same-origin import() (single-threaded, wasmPaths inside the package),
+    // which the extension CSP allows; the v3 JSEP runtime needed a blob: URL and
+    // didn't. If the GPU path still fails on some machine, fall back to WASM
+    // rather than leaving the extension without embeddings.
+    const load = (device: 'webgpu' | 'wasm') => callPipeline('feature-extraction', this.modelId, {
       progress_callback: progressCallback,
       dtype: 'fp32',
-      device: 'wasm',
-    })) as FeatureExtractionPipeline;
+      device,
+    }) as Promise<FeatureExtractionPipeline>;
+
+    if (navigator.gpu) {
+      try {
+        this.pipe = await load('webgpu');
+        this.device = 'webgpu';
+        return;
+      } catch (err) {
+        console.warn('[EdgeAI] WebGPU embeddings unavailable, using WASM:', err instanceof Error ? err.message : err);
+      }
+    }
+    this.pipe = await load('wasm');
+    this.device = 'wasm';
   }
+
+  /** Which backend the model actually loaded on — surfaced in the Trust Panel / logs. */
+  device: 'webgpu' | 'wasm' | null = null;
 
   async embed(text: string): Promise<number[]> {
     return (await this.embedBatch([text]))[0] ?? [];

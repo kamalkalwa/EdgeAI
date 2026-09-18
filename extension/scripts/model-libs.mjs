@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MODEL_IDS = ['Phi-3.5-mini-instruct-q4f16_1-MLC', 'Llama-3.2-1B-Instruct-q4f16_1-MLC'];
+export const MODEL_IDS = ['Phi-4-mini-instruct-q4f16_1-MLC', 'Llama-3.2-1B-Instruct-q4f16_1-MLC'];
 export const OUT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public/mlc');
 export const INDEX_FILE = 'libs.json';
 

@@ -9,6 +9,7 @@ import type { IEmbeddingModel } from '@/lib/types';
 function makeMockEmbedder(dims = 384): IEmbeddingModel {
   let counter = 0;
   return {
+    device: 'wasm',
     load: vi.fn().mockResolvedValue(undefined),
     embed: async (text: string) => {
       // Deterministic: same text → same vector within a test run

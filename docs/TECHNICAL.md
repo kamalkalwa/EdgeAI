@@ -418,7 +418,7 @@ Popup sends LOAD_MODEL (on demand)
     ▼
 initialize()
     ├── selectModelForHardware()      → Check WebGPU + VRAM
-    └── webllm.CreateMLCEngine()      → Phi-3.5-mini (2.3GB, Cache API)
+    └── webllm.CreateMLCEngine()      → Phi-4-mini (2.2GB, Cache API)
     │
     ▼
 Broadcast: MODEL_READY { model: 'llm' }
@@ -435,7 +435,7 @@ Broadcast: MODEL_READY { model: 'llm' }
 
 ```typescript
 async function selectModelForHardware(): Promise<string> {
-  // Primary: Phi-3.5-mini-instruct-q4f16_1-MLC (2.3GB, 3.8B params)
+  // Primary: Phi-4-mini-instruct-q4f16_1-MLC (2.2GB, 3.8B params)
   // Fallback: Llama-3.2-1B-Instruct-q4f16_1-MLC (smaller)
 
   // Selection criteria:
@@ -507,11 +507,11 @@ The offscreen document only processes messages with `_target: 'offscreen'` to av
 | Property | Value |
 |---|---|
 | **Runtime** | web-llm (WebGPU) |
-| **Primary Model** | `Phi-3.5-mini-instruct-q4f16_1-MLC` |
+| **Primary Model** | `Phi-4-mini-instruct-q4f16_1-MLC` |
 | **Fallback Model** | `Llama-3.2-1B-Instruct-q4f16_1-MLC` |
 | **Quantization** | q4f16_1 (4-bit weights, fp16 activations) |
-| **Size** | ~2.3GB (first download), cached in Cache API |
-| **Parameters** | 3.8B (Phi-3.5) / 1B (Llama-3.2) |
+| **Size** | ~2.2GB (first download), cached in Cache API |
+| **Parameters** | 3.8B (Phi-4-mini) / 1B (Llama-3.2) |
 | **Temperature** | 0.7 (default) |
 | **Max Tokens** | 1024 (default) |
 | **Streaming** | Yes, via `chat.completions.create({ stream: true })` |
@@ -520,14 +520,14 @@ The offscreen document only processes messages with `_target: 'offscreen'` to av
 
 | Property | Value |
 |---|---|
-| **Runtime** | transformers.js (ONNX, WASM backend) |
+| **Runtime** | transformers.js 4 (ONNX Runtime 1.31) |
 | **Model** | `Xenova/bge-small-en-v1.5` |
 | **Size** | 33MB |
 | **Dimensions** | 384 |
 | **Latency** | ~3-6ms per sentence |
 | **Pooling** | Mean pooling, L2 normalized |
 | **Batch Size** | 32 (to avoid OOM on large documents) |
-| **Backend** | WASM only (WebGPU blocked by CSP blob: URL issue, also avoids GPU contention with LLM) |
+| **Backend** | WebGPU when available, WASM fallback (since 2026-09-18; ORT 1.31 loads its WebGPU build with a same-origin import(), so the CSP no longer blocks it) |
 | **Dtype** | fp32 |
 
 ### 6.3 Cross-Encoder Reranker
@@ -1221,13 +1221,11 @@ defineConfig({
 
 ### 16.2 Custom Plugin: `copyOrtWasmFiles`
 
-Copies 4 ONNX Runtime WASM files from `node_modules/onnxruntime-web/dist` to `dist/ort/`:
-- `ort-wasm-simd-threaded.mjs`
-- `ort-wasm-simd-threaded.wasm`
-- `ort-wasm-simd-threaded.jsep.mjs`
-- `ort-wasm-simd-threaded.jsep.wasm`
+Copies ONNX Runtime's runtime files from `node_modules/onnxruntime-web/dist` to `dist/ort/`:
+- `ort-wasm-simd-threaded.asyncify.mjs`
+- `ort-wasm-simd-threaded.asyncify.wasm` (~25 MB)
 
-These are served as same-origin extension resources, bypassing CDN + blob: URL restrictions.
+transformers.js 4 imports `onnxruntime-web/webgpu`, whose 1.31 build uses the `asyncify` variant for every device. The files are served as same-origin extension resources, bypassing CDN + blob: URL restrictions; the build fails if they are missing.
 
 ### 16.3 TypeScript Configuration
 
@@ -1584,8 +1582,8 @@ doFinalTranscription()
 
 | Package | Version | Size | Purpose |
 |---|---|---|---|
-| `@mlc-ai/web-llm` | ^0.2.79 | — | WebGPU LLM inference (Phi-3.5, Llama-3.2) |
-| `@huggingface/transformers` | ^3.3.3 | — | ONNX models (embeddings, reranker, Moonshine ASR, Silero VAD) |
+| `@mlc-ai/web-llm` | ^0.2.85 | — | WebGPU LLM inference (Phi-4-mini, Llama-3.2) |
+| `@huggingface/transformers` | ^4.3.0 | — | ONNX models (embeddings on WebGPU; reranker, Moonshine ASR, Silero VAD) |
 | `@orama/orama` | ^3.0.0 | ~500KB | BM25 full-text search, in-memory (vector search is our own brute-force cosine) |
 | `compromise` | ^14.14.3 | — | NLP sentence splitting for semantic chunking |
 | `dexie` | ^4.0.10 | — | IndexedDB wrapper for document metadata |
