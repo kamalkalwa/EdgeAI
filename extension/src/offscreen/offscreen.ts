@@ -533,11 +533,10 @@ async function ensureVoiceModels(): Promise<{ asr: MoonshineASR; vad: SileroVAD 
   if (!sileroVad) {
     sileroVad = new SileroVAD();
     try {
-      await sileroVad.load((progress: number) => {
-        broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'vad', progress } });
-      });
+      await sileroVad.load();
     } catch (err) {
-      // VAD is optional — VoiceSession skips VAD when isLoaded is false
+      // VAD is optional — without it VoiceSession treats everything as speech
+      // and the user ends the recording by hand.
       console.warn('[EdgeAI] VAD failed to load (voice will work without it):', err instanceof Error ? err.message : err);
     }
   }

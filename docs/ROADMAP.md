@@ -56,7 +56,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Moonshine ASR (moonshine-tiny, ONNX) | Done | Replaced Whisper. Per-module dtype: encoder fp32, decoder q4/q8. ~30ms inference. |
-| Silero VAD (voice activity detection) | Done | ~1MB, 512-sample frames at 16kHz, threshold 0.5 |
+| Silero VAD (voice activity detection) | Done | ~2MB (`onnx-community/silero-vad`, raw model with inline config), 512-sample frames at 16kHz, speech starts >0.5 / ends <0.35 |
 | VAD-gated segment transcription | Done | Each speech segment transcribed exactly once — zero flickering. 400ms silence = segment boundary. |
 | Intent classification (rule-based) | Done | note/search/remind/ask/unknown |
 | Mic permission handling | Done | Dedicated mic-grant page |
