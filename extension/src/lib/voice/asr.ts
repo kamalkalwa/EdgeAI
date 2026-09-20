@@ -170,6 +170,7 @@ export class VoiceSession {
     console.log('[EdgeAI Voice] Microphone access granted');
 
     // Reset all state
+    this.vad.reset();
     this.audioChunks = [];
     this.callbacks = callbacks;
     this.completedSegments = [];

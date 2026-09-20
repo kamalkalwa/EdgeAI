@@ -562,14 +562,16 @@ The offscreen document only processes messages with `_target: 'offscreen'` to av
 
 | Property | Value |
 |---|---|
-| **Runtime** | transformers.js |
-| **Model** | `Xenova/silero-vad` |
-| **Size** | ~1MB |
-| **Frame Size** | 512 samples (~32ms at 16kHz) |
-| **Threshold** | 0.5 probability (speech vs non-speech) |
+| **Runtime** | transformers.js, raw model (`AutoModel`, not a pipeline) |
+| **Model** | `onnx-community/silero-vad` — the repo is a bare ONNX graph with no `config.json`, so the config `{ model_type: 'custom' }` is passed inline |
+| **Size** | ~2MB, one request (no `progress_callback`, which would HEAD every expected file first and 404 on the missing config) |
+| **Inputs** | `input` [1, 512] float32, `sr` int64 scalar 16000, `state` [2, 1, 128] LSTM carry-over |
+| **Outputs** | `output` speech probability, `stateN` fed back into the next frame; reset per recording |
+| **Frame Size** | 512 samples (~32ms at 16kHz), fed in order |
+| **Threshold** | Hysteresis: speech starts above 0.5, ends below 0.35 (Silero's reference behaviour) |
 | **Backend** | WASM |
 | **Benefit** | Gates transcription to speech segments only — zero unnecessary Moonshine calls |
-| **Optional** | Yes — VoiceSession works without it |
+| **Optional** | Yes — if the load fails, VoiceSession treats all audio as speech and the user stops by hand |
 
 ---
 
@@ -880,7 +882,7 @@ MediaRecorder (webm/opus, 250ms timeslice)
     │       ├── 1. Decode full WebM blob → Float32Array (16kHz)
     │       │
     │       ├── 2. VAD on new audio frames since last check
-    │       │   └── Silero VAD: 512-sample frames, speech threshold 0.5
+    │       │   └── Silero VAD: 512-sample frames, stateful; speech starts >0.5, ends <0.35
     │       │
     │       └── 3. State machine transitions:
     │
@@ -923,7 +925,7 @@ MediaRecorder (webm/opus, 250ms timeslice)
 | `mediaRecorder` | MediaRecorder | Audio capture (250ms chunks) |
 | `stream` | MediaStream | getUserMedia stream |
 | `asr` | MoonshineASR | Transcription engine |
-| `vad` | SileroVAD \| null | Voice activity detector (optional) |
+| `vad` | SileroVAD | Voice activity detector; state reset in `start()` (optional at runtime: works unloaded) |
 | `state` | VoiceState | `'waiting' \| 'speech' \| 'silence' \| 'transcribing' \| 'stopped'` |
 | `completedSegments` | string[] | Append-only — each segment transcribed once |
 | `speechStartSample` | number | Sample index where current speech started |
@@ -985,7 +987,7 @@ Rule-based classifier — no LLM call needed. Makes voice notes instantaneous ev
 3. Otherwise resample via `OfflineAudioContext` → channel 0
 
 **`splitIntoFrames(audio, frameSamples=512)`:**
-Generator yielding non-overlapping 512-sample `Float32Array` slices.
+Generator yielding non-overlapping 512-sample `Float32Array` slices. Frames are fed to the VAD in order because the model carries LSTM state between them.
 
 ### 13.5 TTS Voice Output (`lib/voice/tts.ts`)
 
