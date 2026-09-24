@@ -2,16 +2,22 @@
  * Service Worker — Lightweight Message Router (ADR-001)
  *
  * Responsibilities:
- * 1. Route messages between popup/content script and the offscreen document
+ * 1. Route messages between the popup and the offscreen document
  * 2. Create / ensure the offscreen document is alive
- * 3. Handle keepalive pings from content script to prevent 30s SW termination
- * 4. Handle chrome.alarms for voice reminders
+ * 3. Keep the Trust Panel's network log — every EdgeAI page reports its own
+ *    requests here (NETWORK_ENTRIES), and this is the only writer
+ * 4. "Index this page with EdgeAI" from the right-click menu
+ * 5. Import bookmarks once the user allows it
  *
- * Does NOT: run any ML inference, touch IndexedDB, or hold application state.
+ * Does NOT: run any ML inference, touch IndexedDB, hold application state,
+ * or put anything into a page the user hasn't asked EdgeAI to read.
  */
 
-import type { Message } from '@/lib/types';
-import { categorizeRequest, appendEntry, isOwnRequest, type NetworkEntry } from '@/lib/trust/network-monitor';
+import type { DocumentMetadata, Message, PageContentForIndex } from '@/lib/types';
+import { appendEntries, sanitizeEntries, type NetworkEntry } from '@/lib/trust/network-monitor';
+import { reportNetworkRequests } from '@/lib/trust/request-reporter';
+import { readTab, ReadTabError } from '@/lib/page/read-tab';
+import { getAllBookmarks, newBookmarkDocuments } from '@/lib/connectors/bookmarks';
 
 const OFFSCREEN_URL = chrome.runtime.getURL('src/offscreen/offscreen.html');
 let creatingOffscreen: Promise<void> | null = null;
@@ -45,36 +51,85 @@ async function ensureOffscreenDocument(): Promise<void> {
   }
 }
 
+// ─── Network Log ─────────────────────────────────────────────────────────────
+//
+// Each EdgeAI page reports the requests it made (request-reporter.ts) and the
+// worker records its own. Kept under a new key: the old `networkLog` came from
+// chrome.webRequest, which never sees an extension's own requests, so it holds
+// nothing worth migrating.
+
+const LOG_KEY = 'networkRequests';
+let networkLog: NetworkEntry[] = [];
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Entries can arrive while the stored log is still loading; keep both.
+const logLoaded: Promise<void> = chrome.storage.local.get(LOG_KEY)
+  .then((result) => {
+    const recordedMeanwhile = networkLog;
+    networkLog = appendEntries(sanitizeEntries(result[LOG_KEY]), recordedMeanwhile);
+  })
+  .catch(console.error);
+chrome.storage.local.remove('networkLog').catch(() => {});
+
+function recordNetworkEntries(entries: NetworkEntry[]): void {
+  if (entries.length === 0) return;
+  appendEntries(networkLog, entries);
+  clearTimeout(persistTimer);
+  // Short debounce: a model download reports dozens of files in bursts. The
+  // worker stays up for 30 s after the message that scheduled this.
+  persistTimer = setTimeout(async () => {
+    await logLoaded;
+    await chrome.storage.local.set({ [LOG_KEY]: networkLog }).catch(console.error);
+    // Lets an open Trust Panel refresh; rejects when no page is listening.
+    chrome.runtime.sendMessage({ type: 'NETWORK_LOG_UPDATED' }).catch(() => {});
+  }, 500);
+}
+
+reportNetworkRequests('service-worker', recordNetworkEntries);
+
 // ─── Message Routing ──────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse) => {
+    // Every EdgeAI page reports its requests, the offscreen document included.
+    if (message.type === 'NETWORK_ENTRIES') {
+      recordNetworkEntries(sanitizeEntries(message.payload));
+      return false;
+    }
+
     // Messages from the offscreen document are status broadcasts (CHAT_CHUNK,
     // MODEL_READY, INDEX_DONE, etc.) — they flow directly to the popup via the
     // chrome.runtime broadcast bus. Forwarding them back to the offscreen would
     // create a circular routing loop and spam port-closed errors.
     if (sender.url === OFFSCREEN_URL) return false;
 
-    // Handle keepalive pings from content script
-    if (message.type === 'KEEPALIVE') {
-      sendResponse({ alive: true });
-      return false;
-    }
-
     // Network log queries — handled directly in SW, not forwarded to offscreen
     if (message.type === 'GET_NETWORK_LOG') {
-      sendResponse({ type: 'NETWORK_LOG', payload: networkLog });
-      return false;
+      logLoaded.then(() => sendResponse({ type: 'NETWORK_LOG', payload: networkLog }));
+      return true;
     }
     if (message.type === 'CLEAR_NETWORK_LOG') {
-      networkLog = [];
-      networkLogDirty = true;
-      persistNetworkLog();
-      sendResponse({ success: true });
-      return false;
+      // After the load, or the stored entries would come back.
+      logLoaded.then(async () => {
+        networkLog = [];
+        clearTimeout(persistTimer);
+        await chrome.storage.local.set({ [LOG_KEY]: [] }).catch(console.error);
+        sendResponse({ success: true });
+      });
+      return true;
     }
 
-    // All other messages (from popup or content scripts) go to the offscreen document
+    if (message.type === 'IMPORT_BOOKMARKS') {
+      const run = startBookmarkImport();
+      run.watched = true;
+      run.done.then(
+        (result) => sendResponse(result),
+        (err) => sendResponse({ error: err instanceof Error ? err.message : String(err) }),
+      );
+      return true;
+    }
+
+    // All other messages from the popup go to the offscreen document
     handleOffscreenMessage(message, sendResponse);
     return true; // keep port open for async response
   }
@@ -107,52 +162,39 @@ async function handleOffscreenMessage(
 }
 
 // ─── Streaming Token Relay ─────────────────────────────────────────────────────
-// Offscreen document sends CHAT_CHUNK messages directly to popup/content scripts
-// via chrome.tabs.sendMessage. The SW just relays them.
+// The offscreen document broadcasts CHAT_CHUNK messages to the popup directly
+// with chrome.runtime.sendMessage; they don't pass through here.
 
 chrome.runtime.onMessageExternal?.addListener((message: Message, sender) => {
   // Reserved for future MCP client connections from external apps
   console.log('[SW] External message from:', sender.id, message.type);
 });
 
-// ─── Alarms (voice reminders) ─────────────────────────────────────────────────
-
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name.startsWith('reminder:')) {
-    const reminderText = alarm.name.replace('reminder:', '');
-
-    // Show a Chrome notification for the reminder
-    await chrome.notifications.create({
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-      title: 'EdgeAI Reminder',
-      message: reminderText,
-    });
-  }
-});
-
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 
+function notify(message: string): void {
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+    title: 'EdgeAI',
+    message,
+  });
+}
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== 'edgeai-index-page' || !tab?.id) return;
+  if (info.menuItemId !== 'edgeai-index-page' || tab?.id === undefined) return;
+
+  let page: PageContentForIndex;
+  try {
+    // The menu click granted activeTab for this tab — that is what lets EdgeAI read it.
+    page = await readTab({ id: tab.id, url: tab.url ?? info.pageUrl });
+  } catch (err) {
+    notify(err instanceof ReadTabError ? err.message : 'Could not read this page.');
+    return;
+  }
+  const { url, title, content } = page;
 
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      type: 'GET_PAGE_CONTENT_FOR_INDEX',
-    });
-
-    if (!response?.payload?.content) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-        title: 'EdgeAI',
-        message: 'Could not extract content from this page.',
-      });
-      return;
-    }
-
-    const { url, title, content } = response.payload;
-
     await ensureOffscreenDocument();
 
     // Check for existing indexed version — delete old before re-indexing
@@ -185,82 +227,67 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       },
     });
 
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-      title: 'EdgeAI',
-      message: existsCheck?.exists ? `Re-indexing "${title}" with latest content...` : `Indexing "${title}"...`,
-    });
+    notify(existsCheck?.exists ? `Re-indexing "${title}" with latest content...` : `Indexing "${title}"...`);
   } catch (err) {
     console.error('[SW] Context menu index error:', err);
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-      title: 'EdgeAI',
-      message: 'Failed to index this page. Make sure the page has loaded completely.',
-    });
+    notify('Failed to index this page.');
   }
 });
 
-// ─── Network Monitor ─────────────────────────────────────────────────────────
+// ─── Bookmarks Import ────────────────────────────────────────────────────────
 //
-// Only requests EdgeAI itself makes are recorded. `webRequest` with <all_urls>
-// reports every request from every tab; recording those would make the "zero
-// external requests" proof meaningless the moment the user opens a website,
-// and turn a privacy extension into a browsing-history log. See isOwnRequest().
+// Runs here rather than in the popup. `bookmarks` is an optional permission,
+// and Chrome can close the toolbar popup while it shows the prompt, so the
+// grant itself starts the import (permissions.onAdded) and the Import button
+// asks for the same run (IMPORT_BOOKMARKS); whichever arrives second joins the
+// first. Bookmarks already in the index are skipped, so importing again only
+// adds new ones.
 
-const EXT_ORIGIN = chrome.runtime.getURL('').replace(/\/$/, '');
+interface BookmarkImport {
+  done: Promise<{ added: number }>;
+  /** A page is waiting on the result; otherwise say it with a notification. */
+  watched: boolean;
+}
+let bookmarkImport: BookmarkImport | null = null;
 
-// In-memory network log — persisted to chrome.storage.local periodically
-let networkLog: NetworkEntry[] = [];
-let networkLogDirty = false;
-
-// Load the persisted log. Entries written by builds that predate the initiator
-// filter may belong to other sites — drop them. Requests that completed while
-// this read was in flight are already in memory — keep them.
-chrome.storage.local.get('networkLog').then((result) => {
-  if (!Array.isArray(result.networkLog)) return;
-  const stored = (result.networkLog as NetworkEntry[]).filter((e) => isOwnRequest(e.url, e.initiator, EXT_ORIGIN));
-  const recordedMeanwhile = networkLog;
-  networkLog = stored;
-  for (const entry of recordedMeanwhile) appendEntry(networkLog, entry);
-  if (stored.length !== result.networkLog.length) {
-    networkLogDirty = true;
-    persistNetworkLog();
-  }
-}).catch(() => {});
-
-function persistNetworkLog(): void {
-  if (!networkLogDirty) return;
-  chrome.storage.local.set({ networkLog }).catch(console.error);
-  networkLogDirty = false;
+function startBookmarkImport(): BookmarkImport {
+  if (bookmarkImport) return bookmarkImport;
+  const run: BookmarkImport = { done: importBookmarks(), watched: false };
+  bookmarkImport = run;
+  run.done.finally(() => { bookmarkImport = null; }).catch(() => {});
+  return run;
 }
 
-// Persist every 10 seconds if dirty
-setInterval(persistNetworkLog, 10_000);
+async function importBookmarks(): Promise<{ added: number }> {
+  const bookmarks = await getAllBookmarks();
+  await ensureOffscreenDocument();
+  const listed = await chrome.runtime.sendMessage({ type: 'LIST_DOCUMENTS', _target: 'offscreen' });
+  if (listed?.error) throw new Error(listed.error);
+  const imported = ((listed?.payload ?? []) as DocumentMetadata[])
+    .filter((d) => d.source === 'bookmark' && d.sourcePath)
+    .map((d) => d.sourcePath as string);
 
-// Record completed requests
-chrome.webRequest.onCompleted.addListener(
-  (details) => {
-    if (!isOwnRequest(details.url, details.initiator, EXT_ORIGIN)) return;
+  const docs = newBookmarkDocuments(bookmarks, imported);
+  for (const doc of docs) {
+    // Acknowledged at once; the offscreen document indexes them one at a time.
+    await chrome.runtime.sendMessage({ type: 'INDEX_DOCUMENT', _target: 'offscreen', payload: doc });
+  }
+  return { added: docs.length };
+}
 
-    const entry: NetworkEntry = {
-      id: `${details.requestId}-${details.timeStamp}`,
-      url: details.url,
-      method: details.method,
-      type: details.type,
-      timestamp: details.timeStamp,
-      statusCode: details.statusCode,
-      responseSize: 0, // Not available in MV3 without webRequestBlocking
-      initiator: details.initiator ?? '',
-      category: categorizeRequest(details.url),
-    };
-
-    appendEntry(networkLog, entry);
-    networkLogDirty = true;
-  },
-  { urls: ['<all_urls>'] },
-);
+chrome.permissions.onAdded.addListener(({ permissions }) => {
+  if (!permissions?.includes('bookmarks')) return;
+  const run = startBookmarkImport();
+  run.done.then(
+    ({ added }) => {
+      if (!run.watched) notify(`Imported ${added} bookmark${added === 1 ? '' : 's'}.`);
+    },
+    (err) => {
+      console.error('[SW] Bookmark import failed:', err);
+      if (!run.watched) notify("Couldn't import bookmarks. Try Import → Chrome Bookmarks again.");
+    },
+  );
+});
 
 // ─── Install / Update ─────────────────────────────────────────────────────────
 

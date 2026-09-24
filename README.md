@@ -2,12 +2,12 @@
 
 A Chrome extension that runs a 3.8B language model, an embedding model, a cross-encoder reranker and speech recognition on your own GPU, inside the browser, and answers questions from your documents. After the one-time model download nothing leaves the machine, and the extension logs its own network requests so you can check that instead of trusting it.
 
-![Ask a question, get a sourced answer, open the Trust Panel: zero external requests](store-assets/demo-trust-proof.gif)
+![Ask a question, get a sourced answer, open the Privacy tab: the network log holds only model downloads](store-assets/demo-trust-proof.gif)
 
 ## What it does
 
 - Chat with Phi-4-mini (3.8B, 4-bit, 4K context) over WebGPU. Machines without roughly 3.4 GB of GPU memory get Llama-3.2-1B instead.
-- Index an Obsidian vault (File System Access API; the folder handle is remembered), PDFs, text and Markdown files, any open tab (the "Index this tab" button, or right-click → "Index this page with EdgeAI"), and Chrome bookmarks (titles and URLs only).
+- Index an Obsidian vault (File System Access API; the folder handle is remembered), PDFs, text and Markdown files, the page you're on (the "Index this tab" button, or right-click → "Index this page with EdgeAI"), and Chrome bookmarks (titles and URLs only).
 - Retrieval per question: BM25 top 20 from Orama and cosine top 20 over bge-small embeddings, fused with reciprocal rank fusion, reranked with ms-marco-MiniLM-L-6, and the top 5 go into the prompt tagged `[SOURCE: title, date]`.
 - Voice: tap the mic, Moonshine-tiny transcribes on-device, Silero VAD decides when you've stopped talking, and replies can be read back with the browser's speech synthesis.
 - Trust Panel: the git commit the build came from, an inventory of everything stored and its size, every network request the extension has made, and an audit log of every retrieval.
@@ -33,7 +33,9 @@ Needs Chrome 116 or newer with WebGPU on (chrome://gpu should say "WebGPU: Hardw
 
 ## How it's built
 
-Manifest V3 gives an extension three places to run code and none of them wants a 2 GB model. The service worker is killed after 30 seconds idle and has no WebGPU. The popup dies when it closes. Content scripts live in someone else's page. So every model runs in an offscreen document — a hidden extension page that Chrome keeps alive while it claims a reason (here: audio playback and microphone) — and the service worker is only a message router. Popup, side panel and content scripts send messages, the worker forwards them, the offscreen document answers and streams tokens back.
+Manifest V3 gives an extension three places to run code and none of them wants a 2 GB model. The service worker is killed after 30 seconds idle and has no WebGPU. The popup dies when it closes. Content scripts live in someone else's page. So every model runs in an offscreen document — a hidden extension page that Chrome keeps alive while it claims a reason (here: audio playback and microphone) — and the service worker is only a message router. The popup and side panel send messages, the worker forwards them, the offscreen document answers and streams tokens back. There's no keepalive: every message wakes the worker, and nothing long-running lives in it.
+
+EdgeAI has no content scripts and no host permissions. "Index this tab" injects a function into the tab when you ask (`chrome.scripting.executeScript` under `activeTab`), and the function returns the page's text.
 
 Chunking is semantic: sentences grouped in windows of three, each window embedded, a new chunk starts where consecutive windows fall below 0.6 cosine similarity or the chunk passes 1500 characters, with two sentences of overlap. Vector search is brute-force cosine over an in-memory map, which is fine up to tens of thousands of chunks — a big vault. Everything persists in IndexedDB: documents and chunks via Dexie, embeddings plus the BM25 source rows as one JSON blob, the vault handle in its own database.
 
@@ -45,24 +47,24 @@ Three things you'll hit if you fork this:
 
 **Remote code.** The Web Store forbids executing code the package didn't ship. web-llm's default config fetches each model's compiled WebGPU library, a `.wasm`, from GitHub at runtime. `npm run fetch:model-libs` downloads the two libraries and writes their URLs and SHA-256 hashes to `public/mlc/libs.json`; at startup the offscreen document copies the bundled bytes into web-llm's cache under the URL web-llm expects, so the download never happens. The build fails if the bundled files don't match the installed web-llm version.
 
-**Keepalive.** A content script on every tab pings the service worker every 25 seconds. That's the whole trick, and it's the same trick every MV3 extension with long-running work ends up using.
+**Logging your own requests.** `chrome.webRequest` never shows an extension its own requests, so a webRequest log of an extension's traffic stays empty whatever the extension does. EdgeAI's log comes from resource timing instead: every EdgeAI page runs a `PerformanceObserver` for `resource` entries and reports them to the service worker, which keeps the log. That covers `fetch`, Cache API downloads (web-llm's path) and failed or blocked requests (status 0). A page that doesn't run the reporter isn't covered, so a test fails if one doesn't. Cross-origin sizes come through as zero without host permissions; URLs and status codes don't need them.
 
 Longer version, including the things that went wrong: [docs/writeup-local-ai-in-chrome-mv3.md](docs/writeup-local-ai-in-chrome-mv3.md).
 
 ## Privacy
 
-Full policy: https://kamalkalwa.github.io/EdgeAI/privacy.html. No server, no account, no telemetry, no analytics. The only requests are the weight downloads from huggingface.co on first run. The Trust Panel's network log records what the extension itself requested and nothing else — requests from the sites you visit are never observed. Settings → Clear All Data drops every database; Delete Downloaded Models empties the model cache.
+Full policy: https://kamalkalwa.github.io/EdgeAI/privacy.html. No server, no account, no telemetry, no analytics. The only requests are the weight downloads from huggingface.co on first run. The Trust Panel's network log lists every request EdgeAI's own pages make, and the policy shows how to check it in DevTools. EdgeAI has no access to the sites you visit; it reads a page only when you index it. Settings → Clear All Data drops every database; Delete Downloaded Models empties the model cache.
 
 ## Development
 
 ```
 npm run dev          # vite build --watch; reload in chrome://extensions
 npm run type-check
-npm test             # 78 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, network log
+npm test             # 121 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, page reader, VAD, network log
 npm run build:store  # production build + zip; commit first, the Trust Panel shows the build's git hash
 ```
 
-`src/background` is the service worker, `src/offscreen` all inference, `src/popup` the UI (one module per tab), `src/lib` retrieval / storage / connectors / voice / trust, `src/content` page extraction and keepalive. Design notes are in `docs/` (TECHNICAL.md is the long one).
+`src/background` is the service worker, `src/offscreen` all inference, `src/popup` the UI (one module per tab), `src/lib` retrieval / storage / connectors / voice / trust / page reading. Design notes are in `docs/` (TECHNICAL.md is the long one).
 
 ## Known limits
 
@@ -70,7 +72,8 @@ npm run build:store  # production build + zip; commit first, the Trust Panel sho
 - No model picker; the choice is made from GPU memory at startup.
 - Indexing the same PDF, text file or vault twice stores it twice. Tabs are deduplicated by URL.
 - Indexing a large vault takes a while even on the GPU; embeddings are computed one document at a time on purpose (a queue keeps the WebGPU worker from running out of memory). There's a progress bar.
-- Bookmark import indexes titles and URLs, not page contents.
+- Bookmark import indexes titles and URLs, not page contents. Chrome asks for bookmark access the first time you import.
+- "Index this tab" reads the tab you opened EdgeAI on, through the toolbar icon, the keyboard shortcut or the right-click menu. The side panel can't read a tab it wasn't opened on; that's Chrome's `activeTab` rule, and EdgeAI says so when it happens.
 
 ## License
 

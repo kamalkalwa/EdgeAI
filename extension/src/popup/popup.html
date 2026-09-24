@@ -771,7 +771,11 @@
       color: var(--text-muted);
     }
     .network-log-entry .nle-time { flex-shrink: 0; width: 50px; }
-    .network-log-entry .nle-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+    .network-log-entry .nle-url { flex: 1; min-width: 0; display: flex; color: var(--text); }
+    .network-log-entry .nle-path,
+    .network-log-entry .nle-file { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .network-log-entry .nle-path { flex: 0 1 auto; }
+    .network-log-entry .nle-file { flex: none; max-width: 100%; }
     .network-log-entry .nle-badge {
       flex-shrink: 0;
       font-size: 9px;
@@ -781,7 +785,14 @@
       font-weight: 600;
     }
     .nle-badge.model_download { background: var(--accent); color: #fff; opacity: 0.7; }
-    .nle-badge.unknown { background: var(--red); color: #fff; }
+    .nle-badge.other { background: var(--red); color: #fff; }
+    .network-log-entry .nle-status { flex-shrink: 0; font-size: 10px; color: var(--red); }
+    .network-log-note {
+      margin: 0 0 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .network-log-note a { color: var(--accent); text-decoration: none; }
     .network-log-empty {
       text-align: center;
       padding: 16px;
@@ -1616,11 +1627,11 @@
         <div class="loading-steps" id="loading-steps">
           <div class="loading-step active" id="step-embeddings">
             <span class="step-indicator">1</span>
-            <span>Loading text understanding (35 MB, cached)</span>
+            <span>Loading text understanding (150 MB, cached after first run)</span>
           </div>
           <div class="loading-step" id="step-llm">
             <span class="step-indicator">2</span>
-            <span>Loading AI model (2.3 GB, cached after first run)</span>
+            <span id="step-llm-label">Loading AI model (up to 2.2 GB, cached after first run)</span>
           </div>
         </div>
 
@@ -1773,12 +1784,8 @@
         <span class="trust-value" id="trust-network-count">–</span>
       </div>
       <div class="trust-row">
-        <span class="trust-label">After model download</span>
+        <span class="trust-label">Requests other than model downloads</span>
         <span class="trust-value green" id="trust-network-external">–</span>
-      </div>
-      <div class="trust-row">
-        <span class="trust-label">Data sent to servers</span>
-        <span class="trust-value green">Zero</span>
       </div>
       <div class="trust-row">
         <span class="trust-label">Model runs on</span>
@@ -1835,6 +1842,7 @@
             <button id="btn-clear-network-log">Clear</button>
           </div>
         </div>
+        <p class="network-log-note">Every request EdgeAI's own pages make, logged when it finishes. <a href="#" id="network-log-verify">Check it yourself</a></p>
         <div id="network-log-list" class="network-log-list"></div>
       </div>
 
@@ -1871,7 +1879,7 @@
         </div>
         <div class="setting-row">
           <span class="setting-label">Size</span>
-          <span class="setting-value" id="settings-model-size">~2.3 GB</span>
+          <span class="setting-value" id="settings-model-size">—</span>
         </div>
       </div>
       <div class="settings-section">

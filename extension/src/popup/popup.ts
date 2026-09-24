@@ -5,8 +5,11 @@
  * Handles tabs, chat, import flows, document preview, and the trust panel.
  */
 
-import type { Message } from '@/lib/types';
+import type { Message, PageContentForIndex } from '@/lib/types';
 import { nanoid } from '@/lib/utils';
+import { reportNetworkRequests } from '@/lib/trust/request-reporter';
+import { readTab, ReadTabError } from '@/lib/page/read-tab';
+import { findLlm } from '@/lib/models/llm-catalog';
 import { state, setCurrentSettings } from './modules/state';
 import {
   $, showToast,
@@ -22,6 +25,9 @@ import { loadDocumentsList, initDocumentListeners } from './modules/documents';
 import { initVoiceListeners } from './modules/voice';
 import { loadSettings, openSettingsPanel, initSettingsListeners } from './modules/settings';
 import { isFirstRun, showOnboarding } from './modules/onboarding';
+
+// This page is also the side panel and the stealth window; all of it is logged.
+reportNetworkRequests('popup');
 
 // ─── Tab Navigation ───────────────────────────────────────────────────────────
 
@@ -96,18 +102,22 @@ btnRetry.addEventListener('click', async () => {
   }, 3000);
 });
 
-/** "Phi-4-mini-instruct-q4f16_1-MLC" → "Phi-4-mini-instruct (Q4)" for the Settings panel. */
+/** The model that actually loaded (default or fallback), with its download size, in Settings. */
 function showActiveModel(modelId: string): void {
-  const el = document.getElementById('settings-model-name');
-  if (el) el.textContent = modelId.replace(/-q4f16_1-MLC$/, ' (Q4)').replace(/-MLC$/, '');
+  const model = findLlm(modelId);
+  const name = document.getElementById('settings-model-name');
+  if (name) name.textContent = model?.label ?? modelId.replace(/-q4f16_1-MLC$/, ' (Q4)').replace(/-MLC$/, '');
+  const size = document.getElementById('settings-model-size');
+  if (size) size.textContent = model?.download ?? '—';
 }
 
 chrome.runtime.onMessage.addListener((message: Message) => {
   if (message.type === 'MODEL_PROGRESS') {
-    const { model, progress, text } = message.payload as {
+    const { model, progress, text, modelId } = message.payload as {
       model: string;
       progress: number;
       text?: string;
+      modelId?: string;
     };
 
     hideErrorBanner();
@@ -125,6 +135,8 @@ chrome.runtime.onMessage.addListener((message: Message) => {
     }
 
     if (model === 'llm') {
+      const chosen = modelId ? findLlm(modelId) : undefined;
+      if (chosen) $('step-llm-label').textContent = `Loading ${chosen.label} (${chosen.download}, cached after first run)`;
       const pct = `${progress}%`;
       modelProgressPct.textContent = pct;
       modelProgressFill.style.width = pct;
@@ -157,7 +169,7 @@ chrome.runtime.onMessage.addListener((message: Message) => {
       statusText.textContent = 'Ready';
       statusModel.textContent = 'Local AI';
       btnSend.disabled = false;
-      chatInput.placeholder = 'Ask anything… (Enter to send, Shift+Enter for newline)';
+      chatInput.placeholder = 'Ask anything…';
     }
   }
 
@@ -185,38 +197,24 @@ $('btn-index-tab').addEventListener('click', async () => {
     return;
   }
 
-  let tab: chrome.tabs.Tab | undefined;
-  try {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    tab = activeTab;
-  } catch {
-    showToast('Could not access the current tab');
-    return;
-  }
-
-  if (!tab?.id || !tab.url) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  if (tab?.id === undefined) {
     showToast('No active tab found');
     return;
   }
 
-  if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') ||
-      tab.url.startsWith('about:') || tab.url.startsWith('edge://')) {
-    showToast('Cannot index browser internal pages');
+  showToast('Reading page…', 10000);
+
+  let page: PageContentForIndex;
+  try {
+    page = await readTab({ id: tab.id, url: tab.url });
+  } catch (err) {
+    showToast(err instanceof ReadTabError ? err.message : 'Could not read this page', 6000);
     return;
   }
-
-  showToast('Extracting page content…', 10000);
+  const { url, title, content } = page;
 
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTENT_FOR_INDEX' });
-
-    if (!response?.payload?.content) {
-      showToast('Could not extract content from this page');
-      return;
-    }
-
-    const { url, title, content } = response.payload as { url: string; title: string; content: string };
-
     // Check if this URL is already indexed — if so, delete old version first
     const existsCheck = await chrome.runtime.sendMessage({
       type: 'CHECK_DOCUMENT_EXISTS',
@@ -265,7 +263,7 @@ $('btn-index-tab').addEventListener('click', async () => {
     chrome.runtime.onMessage.addListener(onIndexResult);
     setTimeout(() => chrome.runtime.onMessage.removeListener(onIndexResult), 30000);
   } catch {
-    showToast('Failed — make sure the page has loaded completely');
+    showToast('Failed to index this page');
   }
 });
 
@@ -347,7 +345,7 @@ async function init(): Promise<void> {
     statusText.textContent = 'Ready';
     statusModel.textContent = 'Local AI';
     btnSend.disabled = false;
-    chatInput.placeholder = 'Ask anything… (Enter to send, Shift+Enter for newline)';
+    chatInput.placeholder = 'Ask anything…';
   } else if (status?.payload?.embeddingsReady) {
     // Embeddings loaded — imports are safe; LLM still loading
     state.embeddingsReady = true;

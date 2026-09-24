@@ -9,6 +9,10 @@
  * alive as long as this tab is open.
  */
 
+import { reportNetworkRequests } from '@/lib/trust/request-reporter';
+
+reportNetworkRequests('stealth');
+
 const btnLaunch = document.getElementById('btn-launch') as HTMLButtonElement;
 const statusEl = document.getElementById('status')!;
 

@@ -27,7 +27,12 @@ import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
 import { nanoid } from '@/lib/utils';
 import { appendAuditEntry } from '@/lib/trust/audit-log';
+import { reportNetworkRequests } from '@/lib/trust/request-reporter';
 import { USER_DATABASES } from '@/lib/storage/db-names';
+import { DEFAULT_LLM, FALLBACK_LLM } from '@/lib/models/llm-catalog';
+
+// Every model download this document makes goes into the Trust Panel's log.
+reportNetworkRequests('offscreen');
 
 // ─── ONNX Runtime Configuration for Chrome Extension CSP ────────────────────
 //
@@ -81,8 +86,8 @@ async function withRetry<T>(
 
 // ─── Model Configuration ─────────────────────────────────────────────────────
 
-const LLM_MODEL_ID = 'Phi-4-mini-instruct-q4f16_1-MLC';
-const LLM_FALLBACK_ID = 'Llama-3.2-1B-Instruct-q4f16_1-MLC';
+const LLM_MODEL_ID = DEFAULT_LLM.id;
+const LLM_FALLBACK_ID = FALLBACK_LLM.id;
 
 // ─── Bundled Model Library ───────────────────────────────────────────────────
 //
@@ -230,6 +235,7 @@ async function initialize(): Promise<void> {
             type: 'MODEL_PROGRESS',
             payload: {
               model: 'llm',
+              modelId, // lets the popup name the model and its download size
               progress: Math.round(progress.progress * 100),
               text: progress.text,
             },
@@ -308,7 +314,7 @@ async function selectModelForHardware(): Promise<string> {
 }
 
 function broadcastStatus(message: Message): void {
-  // Send to all extension contexts (popup, content scripts)
+  // Send to all extension contexts (popup, side panel)
   chrome.runtime.sendMessage(message).catch(() => {
     // Popup may not be open — that's fine
   });

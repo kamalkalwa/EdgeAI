@@ -1,83 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { isSafeUrl, flattenTree, type BookmarkInfo } from '../bookmarks';
-
-// ─── isSafeUrl() ──────────────────────────────────────────────────────────────
-
-describe('isSafeUrl() — allowed URLs', () => {
-  it('allows public HTTPS URLs', () => {
-    expect(isSafeUrl('https://github.com/some/repo')).toBe(true);
-    expect(isSafeUrl('https://www.wikipedia.org/wiki/AI')).toBe(true);
-  });
-
-  it('allows public HTTP URLs', () => {
-    expect(isSafeUrl('http://example.com/page')).toBe(true);
-  });
-});
-
-describe('isSafeUrl() — blocked private/internal URLs', () => {
-  it('blocks localhost', () => {
-    expect(isSafeUrl('http://localhost')).toBe(false);
-    expect(isSafeUrl('http://localhost:3000/api')).toBe(false);
-    expect(isSafeUrl('https://LOCALHOST/')).toBe(false);
-  });
-
-  it('blocks 127.x loopback range', () => {
-    expect(isSafeUrl('http://127.0.0.1')).toBe(false);
-    expect(isSafeUrl('http://127.0.0.1:8080/secret')).toBe(false);
-    expect(isSafeUrl('http://127.255.255.255')).toBe(false);
-  });
-
-  it('blocks 10.x private range', () => {
-    expect(isSafeUrl('http://10.0.0.1')).toBe(false);
-    expect(isSafeUrl('http://10.255.255.255/api')).toBe(false);
-  });
-
-  it('blocks 172.16–31.x private range', () => {
-    expect(isSafeUrl('http://172.16.0.1')).toBe(false);
-    expect(isSafeUrl('http://172.31.255.255')).toBe(false);
-    expect(isSafeUrl('http://172.15.0.1')).toBe(true);  // just outside range
-    expect(isSafeUrl('http://172.32.0.1')).toBe(true);  // just outside range
-  });
-
-  it('blocks 192.168.x.x private range', () => {
-    expect(isSafeUrl('http://192.168.0.1')).toBe(false);
-    expect(isSafeUrl('http://192.168.100.200')).toBe(false);
-  });
-
-  it('blocks IPv6 loopback ::1 (bare)', () => {
-    // URL spec exposes hostname as '[::1]' — the fix strips brackets before matching
-    expect(isSafeUrl('http://[::1]')).toBe(false);
-    expect(isSafeUrl('http://[::1]:8080/api')).toBe(false);
-  });
-
-  it('blocks IPv6 link-local fe80::', () => {
-    expect(isSafeUrl('http://[fe80::1]')).toBe(false);
-  });
-
-  it('blocks 0.0.0.0', () => {
-    expect(isSafeUrl('http://0.0.0.0')).toBe(false);
-  });
-});
-
-describe('isSafeUrl() — invalid / non-HTTP schemes', () => {
-  it('blocks ftp://', () => {
-    expect(isSafeUrl('ftp://ftp.example.com/file')).toBe(false);
-  });
-
-  it('blocks file://', () => {
-    expect(isSafeUrl('file:///etc/passwd')).toBe(false);
-  });
-
-  it('blocks chrome-extension://', () => {
-    expect(isSafeUrl('chrome-extension://abc/popup.html')).toBe(false);
-  });
-
-  it('returns false for malformed URLs', () => {
-    expect(isSafeUrl('not-a-url')).toBe(false);
-    expect(isSafeUrl('')).toBe(false);
-    expect(isSafeUrl('http://')).toBe(false);
-  });
-});
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { flattenTree, getAllBookmarks, newBookmarkDocuments, type BookmarkInfo } from '../bookmarks';
 
 // ─── flattenTree() ─────────────────────────────────────────────────────────────
 
@@ -138,5 +60,56 @@ describe('flattenTree()', () => {
     const out: BookmarkInfo[] = [];
     flattenTree(nodes, out);
     expect(out[0]?.title).toBe('https://example.com');
+  });
+});
+
+// ─── newBookmarkDocuments() ────────────────────────────────────────────────────
+
+describe('newBookmarkDocuments()', () => {
+  const bookmark = (id: string, url: string, title = `Bookmark ${id}`): BookmarkInfo =>
+    ({ id, title, url, dateAdded: 1000 });
+
+  it('indexes the title and URL, dated when the bookmark was added', () => {
+    expect(newBookmarkDocuments([bookmark('1', 'https://github.com', 'GitHub')], [])).toEqual([{
+      content: 'GitHub\nhttps://github.com',
+      metadata: {
+        title: 'GitHub', source: 'bookmark', sourcePath: 'https://github.com', createdAt: 1000, updatedAt: 1000,
+      },
+    }]);
+  });
+
+  it('skips bookmarks already imported, so importing again only adds new ones', () => {
+    const docs = newBookmarkDocuments(
+      [bookmark('1', 'https://a.example'), bookmark('2', 'https://b.example')],
+      ['https://a.example'],
+    );
+    expect(docs.map((d) => d.metadata.sourcePath)).toEqual(['https://b.example']);
+  });
+
+  it('imports a URL bookmarked in two folders once', () => {
+    expect(newBookmarkDocuments([bookmark('1', 'https://a.example'), bookmark('2', 'https://a.example')], []))
+      .toHaveLength(1);
+  });
+});
+
+// ─── getAllBookmarks() ─────────────────────────────────────────────────────────
+
+describe('getAllBookmarks()', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('fails with a clear error until the user allows bookmark access', async () => {
+    vi.stubGlobal('chrome', {});
+    await expect(getAllBookmarks()).rejects.toThrow('permission to read bookmarks');
+  });
+
+  it('flattens the tree Chrome returns', async () => {
+    vi.stubGlobal('chrome', {
+      bookmarks: {
+        getTree: async () => [{ id: '0', title: '', children: [{ id: '1', title: 'GitHub', url: 'https://github.com' }] }],
+      },
+    });
+    await expect(getAllBookmarks()).resolves.toEqual([
+      { id: '1', title: 'GitHub', url: 'https://github.com', dateAdded: undefined },
+    ]);
   });
 });

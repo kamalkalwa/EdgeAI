@@ -2,7 +2,6 @@
 // All messages flowing through chrome.runtime.sendMessage
 
 export type MessageType =
-  | 'KEEPALIVE'
   | 'CHAT'
   | 'CHAT_CHUNK'         // streaming token from LLM
   | 'CHAT_DONE'
@@ -27,11 +26,9 @@ export type MessageType =
   | 'VOICE_PARTIAL'        // streaming partial transcript while recording
   | 'VOICE_TRANSCRIPT'
   | 'VOICE_ERROR'
-  | 'GET_PAGE_CONTEXT'
-  | 'PAGE_CONTEXT'
-  | 'GET_PAGE_CONTENT_FOR_INDEX'
-  | 'PAGE_CONTENT_FOR_INDEX'
   | 'RETRY_INIT'
+  | 'NETWORK_ENTRIES'      // a page reporting the requests it made (see request-reporter.ts)
+  | 'NETWORK_LOG_UPDATED'  // service worker → open Trust Panel: refresh
   | 'GET_NETWORK_LOG'
   | 'NETWORK_LOG'
   | 'CLEAR_NETWORK_LOG'
@@ -39,6 +36,7 @@ export type MessageType =
   | 'AUDIT_LOG'
   | 'CLEAR_AUDIT_LOG'
   | 'CHECK_DOCUMENT_EXISTS'
+  | 'IMPORT_BOOKMARKS'     // page → service worker: import bookmarks not yet indexed
   | 'CLEAR_ALL_DATA';       // wipe every IndexedDB store (documents, vectors, vault handle)
 
 export interface Message<T = unknown> {
@@ -228,15 +226,9 @@ export interface IDocumentStore {
   documentExists(sourcePath: string): Promise<DocumentMetadata | undefined>;
 }
 
-// ─── Page Context ─────────────────────────────────────────────────────────────
+// ─── Page Content ─────────────────────────────────────────────────────────────
 
-export interface PageContext {
-  url: string;
-  title: string;
-  selectedText?: string;
-  visibleText?: string;       // truncated visible content
-}
-
+/** What lib/page/read-tab.ts reads out of a tab for indexing. */
 export interface PageContentForIndex {
   url: string;
   title: string;

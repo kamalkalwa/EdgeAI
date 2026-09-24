@@ -37,7 +37,7 @@
 
 ## 1. Architecture Overview
 
-EdgeAI is a fully offline, privacy-first Chrome extension (MV3) that runs AI inference entirely on the user's device. No server calls, no API keys, no data exfiltration.
+EdgeAI is a privacy-first Chrome extension (MV3) that runs AI inference entirely on the user's device. Its only network requests download the models from Hugging Face, once; after that it works offline. No API keys, and nothing the user types, says or imports leaves the device. The Trust panel lists every request ([2.5](#25-network-log-trust-panel)).
 
 ### High-Level Architecture
 
@@ -50,8 +50,8 @@ EdgeAI is a fully offline, privacy-first Chrome extension (MV3) that runs AI inf
 │  │ SERVICE WORKER (30s idle timeout)                        │   │
 │  │ • Message router between contexts                        │   │
 │  │ • Offscreen document lifecycle management                │   │
-│  │ • Keepalive relay from content script                    │   │
-│  │ • Chrome alarms (voice reminders)                        │   │
+│  │ • Network log for the Trust panel (single writer)        │   │
+│  │ • Right-click "Index this page", bookmark import         │   │
 │  │ • Install/update handler                                 │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │            ↕ chrome.runtime.sendMessage()                        │
@@ -65,19 +65,20 @@ EdgeAI is a fully offline, privacy-first Chrome extension (MV3) that runs AI inf
 │  └──────────────────────────────────────────────────────────┘   │
 │            ↕ chrome.runtime.sendMessage()                        │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │ POPUP (action page)                                      │   │
+│  │ POPUP (toolbar popup, side panel, onboarding tab)        │   │
 │  │ • Chat UI with streaming markdown rendering              │   │
 │  │ • Document import panel (Obsidian, PDF, Bookmarks)       │   │
 │  │ • Document list with preview modal                       │   │
-│  │ • Trust panel (storage statistics)                       │   │
+│  │ • Trust panel (network log, storage statistics)          │   │
 │  │ • Multi-session chat persistence                         │   │
 │  │ • Voice input UI                                         │   │
 │  └──────────────────────────────────────────────────────────┘   │
-│            ↕ chrome.runtime.sendMessage()                        │
+│            ↓ chrome.scripting.executeScript(), on demand         │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │ CONTENT SCRIPT (injected into every tab)                 │   │
-│  │ • Keepalive pings (25s interval)                         │   │
-│  │ • Page context extraction (URL, title, selected text)    │   │
+│  │ PAGE READER (runs once, in a tab the user opened EdgeAI  │   │
+│  │ on: toolbar icon, shortcut or right-click menu)          │   │
+│  │ • Extracts the page's main text and returns it           │   │
+│  │ • No content script: nothing stays in the page           │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -89,42 +90,51 @@ EdgeAI is a fully offline, privacy-first Chrome extension (MV3) that runs AI inf
 extension/
 ├── src/
 │   ├── background/
-│   │   └── service-worker.ts        # Message router (201 lines)
-│   ├── content/
-│   │   └── content-script.ts        # Keepalive + page context (178 lines)
+│   │   └── service-worker.ts        # Router, network log, context menu, bookmark import (317 lines)
 │   ├── offscreen/
-│   │   └── offscreen.ts             # Inference engine (682 lines)
+│   │   └── offscreen.ts             # Inference engine (851 lines)
 │   ├── popup/
 │   │   ├── popup.html
-│   │   └── popup.ts                 # Main UI controller (1654 lines)
+│   │   ├── popup.ts                 # Entry point and wiring (369 lines)
+│   │   └── modules/                 # chat, documents, onboarding, sessions, settings, trust, voice
 │   ├── lib/
-│   │   ├── types.ts                 # All TypeScript types (246 lines)
+│   │   ├── types.ts                 # All TypeScript types (250 lines)
 │   │   ├── utils.ts                 # Shared utilities (39 lines)
 │   │   ├── models/
-│   │   │   └── embedding.ts         # Embedding + reranker models (123 lines)
+│   │   │   ├── embedding.ts         # Embedding + reranker models (140 lines)
+│   │   │   ├── llm-catalog.ts       # The two LLMs: ids, names, download sizes (23 lines)
+│   │   │   └── llm-models.json      # Shared with the build (scripts/model-libs.mjs)
+│   │   ├── page/
+│   │   │   └── read-tab.ts          # On-demand page reader for "Index this tab" (188 lines)
+│   │   ├── trust/
+│   │   │   ├── network-monitor.ts   # Network log entries: pure functions (143 lines)
+│   │   │   ├── request-reporter.ts  # Resource-timing reporter, one per context (35 lines)
+│   │   │   └── audit-log.ts         # Local audit log (52 lines)
 │   │   ├── storage/
-│   │   │   ├── vector-store.ts      # Orama vector store (328 lines)
-│   │   │   └── document-store.ts    # Dexie.js metadata store (69 lines)
+│   │   │   ├── vector-store.ts      # Orama vector store (332 lines)
+│   │   │   └── document-store.ts    # Dexie.js metadata store (74 lines)
 │   │   ├── retrieval/
 │   │   │   ├── retrieval.ts         # RAG pipeline (171 lines)
 │   │   │   ├── chunker.ts           # Semantic chunker (161 lines)
 │   │   │   └── rrf.ts              # Reciprocal Rank Fusion (58 lines)
 │   │   ├── voice/
-│   │   │   ├── asr.ts              # Moonshine ASR + VoiceSession (493 lines)
-│   │   │   ├── vad.ts              # Silero VAD (112 lines)
+│   │   │   ├── asr.ts              # Moonshine ASR + VoiceSession (494 lines)
+│   │   │   ├── vad.ts              # Silero VAD (143 lines)
 │   │   │   └── tts.ts              # Web Speech TTS (99 lines)
 │   │   └── connectors/
-│   │       ├── obsidian.ts          # File System Access API (199 lines)
+│   │       ├── obsidian.ts          # File System Access API (204 lines)
 │   │       ├── pdf.ts               # pdf.js connector (85 lines)
-│   │       └── bookmarks.ts         # Chrome Bookmarks API (184 lines)
+│   │       └── bookmarks.ts         # Chrome Bookmarks API, titles and URLs (78 lines)
+│   ├── privacy/
+│   │   └── privacy.html             # Privacy policy, bundled
 │   ├── stealth/
 │   │   └── stealth.html             # Picture-in-Picture mode
 │   ├── mic-grant/
 │   │   └── mic-grant.html           # Microphone permission page
-│   └── manifest.json                # MV3 manifest (85 lines)
-├── vite.config.ts                   # Build configuration (83 lines)
-├── tsconfig.json                    # TypeScript configuration (27 lines)
-└── package.json                     # Dependencies (36 lines)
+│   └── manifest.json                # MV3 manifest (72 lines)
+├── vite.config.ts                   # Build configuration (141 lines)
+├── tsconfig.json                    # TypeScript configuration (26 lines)
+└── package.json                     # Dependencies (37 lines)
 ```
 
 ---
@@ -133,19 +143,23 @@ extension/
 
 ### 2.1 Service Worker (`background/service-worker.ts`)
 
-**Role:** Lightweight message router. Does NOT run any ML inference, touch IndexedDB, or hold application state.
+**Role:** Lightweight message router. Does NOT run any ML inference, touch IndexedDB, or hold application state beyond the network log.
 
 **Responsibilities:**
-1. Route messages between popup/content script and the offscreen document
+1. Route messages between the popup and the offscreen document
 2. Create/ensure the offscreen document is alive (race-safe via `creatingOffscreen` promise)
-3. Handle keepalive pings from content script (prevents 30s SW termination)
-4. Handle `chrome.alarms` for voice reminders (notification-based)
-5. Open onboarding tab on first install
-6. Pre-create offscreen document on install/startup for instant first query
+3. Keep the Trust panel's network log: the only writer (see [2.5](#25-network-log-trust-panel))
+4. "Index this page with EdgeAI" from the right-click menu (reads the tab with the page reader, see [2.3](#23-page-reader-libpageread-tabts))
+5. Import bookmarks once the user grants the optional `bookmarks` permission (see [14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts))
+6. Open onboarding tab on first install
+7. Pre-create offscreen document on install/startup for instant first query
+
+**No keepalive.** Chrome ends the worker after 30 s idle and wakes it on the next message or event. Nothing it does needs to outlive that: inference and model state live in the offscreen document, which Chrome keeps open on its own, and the log is written to storage 500 ms after the last report in a burst, well inside the 30 s the worker stays up after that report.
 
 **Key implementation details:**
-- Messages from the offscreen document URL are ignored to prevent circular routing loops
-- `KEEPALIVE` messages get synchronous responses (`return false`)
+- `NETWORK_ENTRIES` is handled before anything else, from every sender, the offscreen document included
+- Other messages from the offscreen document URL are ignored to prevent circular routing loops
+- `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG` and `IMPORT_BOOKMARKS` are answered by the worker itself
 - All other messages forwarded to offscreen with `_target: 'offscreen'` tag
 - Error responses include the original `requestId` for correlation
 - External message listener reserved for future MCP client connections
@@ -160,30 +174,50 @@ extension/
 
 See [Section 5](#5-offscreen-document--inference-engine) for full details.
 
-### 2.3 Content Script (`content/content-script.ts`)
+### 2.3 Page Reader (`lib/page/read-tab.ts`)
 
-**Role:** Service worker keepalive and page context extraction.
+**Role:** Reads one tab's main text when the user asks to index it. There is no content script: EdgeAI puts nothing into pages the user hasn't asked it to read.
 
-**Keepalive mechanism:**
-- Pings every **25 seconds** (SW dies at 30s idle)
-- Starts on script load, stops on `pagehide`
-- Pauses on `visibilitychange` (hidden), resumes on visible
-- Gracefully handles SW death (stops pinging, SW restarts on next user action)
+**Access comes from `activeTab`.** Chrome grants it for the current tab when the user clicks the toolbar icon, presses the `_execute_action` shortcut or picks "Index this page with EdgeAI" from the right-click menu, and keeps it until the tab navigates away or is closed. With the grant, `chrome.scripting.executeScript` injects `extractPageContent`, which returns the text and leaves nothing behind. Without it, Chrome refuses and hides `tab.url`. A click inside the side panel or the Picture-in-Picture window grants nothing, so those can read only a tab the user opened EdgeAI on.
 
-**Page context extraction (`extractPageContext`):**
-- Returns `{ url, title, selectedText, visibleText }`
-- Uses `TreeWalker` with `NodeFilter.SHOW_TEXT` to extract visible content
-- Skips `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<noscript>` elements
-- Prefers `<main>` → `<article>` → `<body>` as content root
-- `selectedText` capped at 500 chars
-- `visibleText` capped at 2000 chars
-- Responds synchronously to `GET_PAGE_CONTEXT` messages
+**`readTab(tab)`:**
+1. Classifies the URL, when Chrome shows it: `chrome://`, `edge://`, `about:`, `view-source:`, `devtools://`, other extensions and the Web Store are `restricted`; EdgeAI's own pages are `own_page`; a `.pdf` path is `pdf`. These fail at once, without touching the tab.
+2. When the URL is hidden, asks `chrome.runtime.getContexts({ contextTypes: ['TAB'], tabIds })` whether the tab is one of EdgeAI's own pages (the onboarding tab, say). Chrome hides those URLs too and returns only a generic error for them.
+3. Runs `extractPageContent` with a 15 s timeout.
+4. Rejects a PDF by `document.contentType` (a PDF URL doesn't always end in `.pdf`) and a page with no text.
+
+Every failure is a `ReadTabError` whose `reason` maps to a message the user can act on (`READ_TAB_MESSAGES`): `restricted`, `own_page`, `pdf`, `file_access`, `no_access`, `empty`, `timeout`, `tab_closed`, `failed`. `classifyScriptingError` maps Chrome's `executeScript` errors onto them; Chrome's error page (`chrome-error://`) counts as `failed`, not `no_access`.
+
+**`extractPageContent()`** runs in the page's isolated world. `executeScript` sends it as source text (`toString()`), so it references nothing outside its own body; a unit test runs it from its source text alone.
+- Content root priority: `article` → `[role="main"]` → `main` → `.post-content, .article-content, .entry-content, #content` → `body`
+- Noise removal: clones the root, strips `script`, `style`, `noscript`, `nav`, `footer`, `header`, `aside`, `[role="banner"]`, `[role="navigation"]`, `[role="complementary"]`, `.sidebar`, `.comments`, `.ad`, `.advertisement`, `.social-share`, `.related-posts`, `.newsletter-signup`, `iframe`
+- TreeWalker keeps text nodes of 3 characters or more
+- Hard cap: 10,000 characters
+- Returns `{ url, title, contentType, content }`
+
+**Callers:** the popup's "Index this tab" button, onboarding's Index Current Tab, and the service worker's context-menu handler, which reports the outcome with a notification.
 
 ### 2.4 Popup (`popup/popup.ts`)
 
 **Role:** Main user interface controller.
 
 See [Section 15](#15-popup-ui-controller) for full details.
+
+### 2.5 Network Log (Trust panel)
+
+**Why not `chrome.webRequest`:** Chrome never delivers an extension's own requests to its `webRequest` listeners, so a webRequest log of EdgeAI's traffic is empty whatever EdgeAI does. The log is built from the browser's resource-timing entries instead.
+
+**How it works:**
+- Every EdgeAI page that runs code calls `reportNetworkRequests('<context>')` (`lib/trust/request-reporter.ts`) before anything else, and so does the service worker. It observes `PerformanceObserver({ type: 'resource', buffered: true })`, so requests made before it started are included.
+- Pages send the entries as `NETWORK_ENTRIES`; the worker records its own directly. The worker is the only writer: it dedupes by id, keeps the newest 1,000 (`appendEntries`), persists to `chrome.storage.local` under `networkRequests` 500 ms after the last report in a burst, and broadcasts `NETWORK_LOG_UPDATED` so an open Trust panel refreshes.
+- Each entry is `{ id, url, timestamp, statusCode, initiatorType, context, category }`. `category` is `model_download` for Hugging Face and its download mirrors (`huggingface.co`, `hf.co` and their subdomains) and `other` for anything else. The Privacy tab counts the `other` entries.
+- `lib/trust/__tests__/reporter-coverage.test.ts` fails if a page entry point or the service worker stops reporting, if a page without a script loads anything remote, or if code starts a worker of its own (a worker's requests land in a timeline no reporter sees). PDF.js's worker is the exception: it parses the bytes it is handed and fetches nothing while no cMap, font or wasm URL is set, which the test also checks.
+
+**Limits, stated in the UI and the privacy policy:**
+- The log is self-reported. The independent check is DevTools: chrome://extensions → Developer mode → Inspect views on the offscreen document, popup or service worker → Network. DevTools records only while it is open.
+- An entry appears when its request finishes, so a download in progress shows up once it completes. A request that fails or is blocked is logged with status 0.
+- A request cancelled partway can leave no entry. Chrome records none for a Cache API download it gives up on mid-body, as it does when the disk is nearly full.
+- Sizes aren't logged: without host permissions, cross-origin transfer sizes read as 0.
 
 ---
 
@@ -194,19 +228,21 @@ All inter-context communication uses `chrome.runtime.sendMessage()` with typed `
 ### 3.1 Message Flow Diagram
 
 ```
-Popup/Content Script  →  Service Worker  →  Offscreen Document
-                         (router)            (inference engine)
-         ←  chrome.runtime broadcast bus  ←
+Popup  →  Service Worker  →  Offscreen Document
+          (router)            (inference engine)
+   ←  chrome.runtime broadcast bus  ←
+
+Every EdgeAI page  →  Service Worker    (NETWORK_ENTRIES, network log)
 ```
 
 **Outbound (to offscreen):** Popup sends → SW forwards with `_target: 'offscreen'` → Offscreen processes
 **Inbound (to popup):** Offscreen broadcasts via `chrome.runtime.sendMessage()` → Popup listens
+**Handled by the SW itself:** `NETWORK_ENTRIES`, `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG`, `IMPORT_BOOKMARKS`
 
 ### 3.2 Message Types
 
 | Message Type | Direction | Payload | Response |
 |---|---|---|---|
-| `KEEPALIVE` | Content → SW | none | `{ alive: true }` (sync) |
 | `LOAD_MODEL` | Popup → Offscreen | none | `MODEL_READY` or `MODEL_ERROR` |
 | `RETRY_INIT` | Popup → Offscreen | none | `{ acknowledged: true }` (sync) |
 | `GET_STATUS` | Popup → Offscreen | none | `STATUS` with model states |
@@ -226,11 +262,14 @@ Popup/Content Script  →  Service Worker  →  Offscreen Document
 | `VOICE_PARTIAL` | Offscreen → Popup | `{ text }` | — (broadcast) |
 | `VOICE_TRANSCRIPT` | Offscreen → Popup | `{ text, intent }` | — (broadcast) |
 | `VOICE_ERROR` | Offscreen → Popup | `{ error }` | — (broadcast) |
-| `GET_PAGE_CONTEXT` | Any → Content | none | `PAGE_CONTEXT` (sync) |
-| `GET_PAGE_CONTENT_FOR_INDEX` | Popup → Content | none | `PAGE_CONTENT_FOR_INDEX` (sync) |
-| `MODEL_PROGRESS` | Offscreen → Popup | `{ model, progress, text? }` | — (broadcast) |
+| `MODEL_PROGRESS` | Offscreen → Popup | `{ model, progress, text?, modelId? }` | — (broadcast) |
 | `MODEL_READY` | Offscreen → Popup | `{ model, modelId? }` | — (broadcast) |
 | `MODEL_ERROR` | Offscreen → Popup | `{ error, stage?, canRetry? }` | — (broadcast) |
+| `NETWORK_ENTRIES` | Any EdgeAI page → SW | `NetworkEntry[]` | none |
+| `NETWORK_LOG_UPDATED` | SW → Popup | none | — (broadcast) |
+| `GET_NETWORK_LOG` | Popup → SW | none | `NETWORK_LOG` with `NetworkEntry[]` |
+| `CLEAR_NETWORK_LOG` | Popup → SW | none | `{ success: true }` |
+| `IMPORT_BOOKMARKS` | Popup → SW | none | `{ added }` or `{ error }` |
 
 ### 3.3 Request ID Correlation
 
@@ -1061,44 +1100,33 @@ Generator yielding non-overlapping 512-sample `Float32Array` slices. Frames are 
 ### 14.3 Chrome Bookmarks Connector (`lib/connectors/bookmarks.ts`)
 
 **ADR:** ADR-006
-**API:** `chrome.bookmarks`
+**API:** `chrome.bookmarks`, behind the optional `bookmarks` permission
 
-**Two modes:**
-1. **Full content fetch** (`indexAllBookmarks`): Fetches page content via `fetch()`, rate-limited
-2. **Metadata only** (`indexBookmarkMetadataOnly`): Title + URL only, offline-safe
-
-**Safety guards (SSRF prevention):**
-- Blocks fetches to localhost, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-- Blocks IPv6 loopback (`::1`), link-local (`fe80:`), null address (`0.0.0.0`)
-- Only allows `http:` and `https:` protocols
-- Fetch timeout: 10 seconds
-- Concurrency: 3 parallel fetches
-- Skips non-HTML content types
-- Text extraction: DOMParser → remove script/style/nav/footer/header/aside/noscript → prefer main/article/body → 50K char limit
-
-**Tree flattening:**
-- Recursive traversal of `chrome.bookmarks.getTree()`
-- Extracts `{ id, title, url, dateAdded }` for each bookmark node
-
-### 14.4 "Index This Tab" (`content/content-script.ts`)
-
-**No connector module needed** — the content script extracts page content directly.
-
-**`extractPageContentForIndex()`:**
-- Content root priority: `article` → `[role="main"]` → `main` → `.post-content, .article-content, .entry-content, #content` → `body`
-- Noise removal: clones content root, strips `script`, `style`, `noscript`, `nav`, `footer`, `header`, `aside`, `[role="banner"]`, `[role="navigation"]`, `[role="complementary"]`, `.sidebar`, `.comments`, `.ad`, `.advertisement`, `.social-share`, `.related-posts`, `.newsletter-signup`, `iframe`
-- TreeWalker extracts text nodes ≥ 3 chars
-- Hard cap: 10,000 characters (`MAX_INDEX_CHARS`)
-- Returns `{ url, title, content }`
+Imports each bookmark's title and URL as a small document. No page is fetched, so the import works offline and needs no host permission.
 
 **Flow:**
-1. Popup sends `GET_PAGE_CONTENT_FOR_INDEX` to content script via `chrome.tabs.sendMessage()`
-2. Content script extracts and returns page content
-3. Popup sends `INDEX_DOCUMENT` with `requestId` to offscreen via service worker
-4. Popup listens for `INDEX_DONE`/`INDEX_ERROR` with matching `requestId`
+1. Import → Chrome Bookmarks calls `chrome.permissions.request({ permissions: ['bookmarks'] })` the first time. A refusal shows a toast and stops.
+2. The popup sends `IMPORT_BOOKMARKS`; the service worker runs the import and answers `{ added }` or `{ error }`.
+3. The worker lists the stored documents, keeps the `sourcePath` of those with `source: 'bookmark'`, and `newBookmarkDocuments()` skips any URL already imported (and repeats within the tree). Each new bookmark becomes `INDEX_DOCUMENT` with content `title\nurl`; the offscreen queue indexes them one at a time.
+4. The button shows "✓ N bookmarks" or "✓ Already imported".
+
+**The permission prompt can close the popup.** The worker also listens for `chrome.permissions.onAdded` and starts the import itself when `bookmarks` is granted. Both paths share one run (`startBookmarkImport()`); if no page is waiting for the answer, the worker reports the result with a notification.
+
+**Tree flattening:** `getAllBookmarks()` walks `chrome.bookmarks.getTree()` and returns `{ id, title, url, dateAdded }` for every node with a URL. It throws a clear error when the permission hasn't been granted.
+
+### 14.4 "Index This Tab"
+
+**No connector module.** The page reader (`lib/page/read-tab.ts`, [Section 2.3](#23-page-reader-libpageread-tabts)) extracts the text on demand.
+
+**Flow (popup):**
+1. "Index this tab" queries the active tab and calls `readTab()`. A `ReadTabError` is shown as a toast with its message.
+2. The popup sends `CHECK_DOCUMENT_EXISTS` by URL; an existing copy is deleted first, so re-indexing replaces rather than duplicates ("Re-indexing … with latest content").
+3. It sends `INDEX_DOCUMENT` with a `requestId` (`source: 'web_page'`) and listens for `INDEX_DONE`/`INDEX_ERROR` with that `requestId`.
+
+**Flow (right-click menu):** the service worker's `contextMenus.onClicked` handler does the same with the tab from the click, which is what grants `activeTab`, and reports with a notification.
 
 **Guards:**
-- Blocks internal Chrome pages (`chrome://`, `chrome-extension://`, `about:`, `edge://`)
+- Chrome's own pages, the Web Store, other extensions, EdgeAI's own pages and PDFs are turned down before any script runs
 - Checks `state.embeddingsReady` before proceeding
 - 30-second timeout on listener cleanup
 
@@ -1145,13 +1173,13 @@ const state = {
 
 ### 15.4 Import Flows
 
-All imports are async generators, processed one document at a time:
+Obsidian and PDF imports are async generators, processed one document at a time. The bookmark import runs in the service worker:
 
 | Source | Trigger | Module | Notes |
 |---|---|---|---|
 | Obsidian | Click button → `selectVault()` | Dynamic import | Shows file count during indexing |
 | PDF | Click → file input → `indexPdfFiles()` | Dynamic import | Multi-file, shows N/total |
-| Bookmarks | Click → `indexBookmarkMetadataOnly()` | Dynamic import | Metadata-only mode (offline-safe) |
+| Bookmarks | Click → permission prompt → `IMPORT_BOOKMARKS` | Service worker | Titles and URLs only; skips URLs already imported ([14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts)) |
 
 **Guard:** All import buttons check `state.embeddingsReady` before proceeding — shows "Wait: loading embeddings…" for 3 seconds if not ready.
 
@@ -1262,15 +1290,16 @@ Path alias: @/* → src/*
 | Permission | Purpose |
 |---|---|
 | `offscreen` | Create offscreen document for ML inference |
-| `storage` | `chrome.storage.local` for chat sessions |
-| `alarms` | Voice reminders |
-| `notifications` | Reminder notifications |
-| `bookmarks` | Chrome Bookmarks connector |
-| `activeTab` | Current tab context |
-| `scripting` | Dynamic content script injection |
+| `storage` | `chrome.storage.local`: chat sessions, settings, the network log |
 | `unlimitedStorage` | Model cache + IndexedDB stores |
+| `activeTab` | Read the tab the user opened EdgeAI on (toolbar icon, shortcut, right-click menu) |
+| `scripting` | Run the page reader in that tab, once, on request |
+| `contextMenus` | "Index this page with EdgeAI" in the right-click menu |
+| `notifications` | Report results of work started outside the popup (right-click indexing, bookmark import) |
+| `sidePanel` | Open EdgeAI in Chrome's side panel |
+| `bookmarks` (optional) | Chrome Bookmarks connector; requested on first import, not at install |
 
-**Host permissions:** `https://*/*`, `http://*/*` (for bookmark content fetching)
+**No host permissions, no content scripts, no web-accessible resources.** Model files come from Hugging Face, which allows cross-origin downloads, so the offscreen document fetches them without a site permission. With no web-accessible resources, a website can't probe for EdgeAI's files to learn that it is installed. The Picture-in-Picture window loads `popup.html` as an extension page, which doesn't need one.
 
 ### 17.2 Content Security Policy
 
@@ -1565,7 +1594,7 @@ doFinalTranscription()
 
 | ADR | Title | Implementation |
 |---|---|---|
-| ADR-001 | Offscreen Document for ML Inference | `service-worker.ts` (router), `offscreen.ts` (engine), `content-script.ts` (keepalive) |
+| ADR-001 | Offscreen Document for ML Inference | `service-worker.ts` (router), `offscreen.ts` (engine) |
 | ADR-002 | web-llm (WebGPU) + transformers.js (ONNX) | `offscreen.ts` (web-llm), `embedding.ts` (transformers.js), `asr.ts`, `vad.ts` |
 | ADR-003 | Orama + Dexie.js Storage | `vector-store.ts` (Orama + IDB), `document-store.ts` (Dexie) |
 | ADR-004 | Semantic Chunking with compromise.js | `chunker.ts` |
