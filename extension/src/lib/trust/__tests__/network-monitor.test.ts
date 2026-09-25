@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  appendEntries, categorizeRequest, formatEntryUrl, sanitizeEntries, toNetworkEntry,
+  categorizeRequest, formatEntryUrl, sanitizeEntries, toNetworkEntry,
   type NetworkEntry, type ResourceTimingLike,
 } from '../network-monitor';
 import { reportNetworkRequests } from '../request-reporter';
@@ -100,22 +100,6 @@ describe('sanitizeEntries', () => {
     expect(Object.keys(kept ?? {}).sort()).toEqual(
       ['category', 'context', 'id', 'initiatorType', 'statusCode', 'timestamp', 'url'],
     );
-  });
-});
-
-describe('appendEntries', () => {
-  it('ignores entries it already holds (a report can arrive twice)', () => {
-    const log = appendEntries([], [entry(1), entry(2)]);
-    appendEntries(log, [entry(2), entry(3), entry(3)]);
-    expect(log.map((e) => e.timestamp)).toEqual([1, 2, 3]);
-  });
-
-  it('keeps the log capped at 1000 entries, dropping the oldest', () => {
-    const log: NetworkEntry[] = [];
-    for (let i = 0; i < 1005; i++) appendEntries(log, [entry(i)]);
-    expect(log).toHaveLength(1000);
-    expect(log[0]?.timestamp).toBe(5);
-    expect(log[999]?.timestamp).toBe(1004);
   });
 });
 

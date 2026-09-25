@@ -33,8 +33,6 @@ export interface ResourceTimingLike {
   responseStatus?: number;
 }
 
-const MAX_ENTRIES = 1000;
-
 /**
  * Hugging Face and its cdn-lfs / xet download mirrors: the only place the
  * extension fetches from at runtime (model weights, on first use). Anything
@@ -112,23 +110,6 @@ export function sanitizeEntries(payload: unknown): NetworkEntry[] {
     });
   }
   return entries;
-}
-
-/**
- * Adds the entries the log doesn't already hold (a report can arrive twice),
- * then drops the oldest beyond MAX_ENTRIES.
- */
-export function appendEntries(log: NetworkEntry[], entries: NetworkEntry[]): NetworkEntry[] {
-  const seen = new Set(log.map((e) => e.id));
-  for (const entry of entries) {
-    if (seen.has(entry.id)) continue;
-    seen.add(entry.id);
-    log.push(entry);
-  }
-  if (log.length > MAX_ENTRIES) {
-    log.splice(0, log.length - MAX_ENTRIES);
-  }
-  return log;
 }
 
 /**

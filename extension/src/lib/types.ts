@@ -32,6 +32,8 @@ export type MessageType =
   | 'GET_NETWORK_LOG'
   | 'NETWORK_LOG'
   | 'CLEAR_NETWORK_LOG'
+  | 'AUDIT_ENTRY'          // offscreen document → service worker: something it did (see audit-log.ts)
+  | 'AUDIT_LOG_UPDATED'    // service worker → open Trust Panel: refresh
   | 'GET_AUDIT_LOG'
   | 'AUDIT_LOG'
   | 'CLEAR_AUDIT_LOG'

@@ -20,7 +20,7 @@ This guide walks through the full sanity check for all implemented features
 cd EdgeAI/extension
 npm run type-check       # expect: 0 errors
 npm run build            # expect: dist/ folder populated with manifest + chunks
-npm test                 # expect: 127 passed, 0 failed, ~500ms
+npm test                 # expect: 137 passed, 0 failed, ~500ms
 ```
 
 **Pass criteria:** No red output from any of the three commands.
@@ -334,6 +334,11 @@ EdgeAI has no content script. It can read a tab only after you invoke it there: 
 9. Restart Chrome → **Expected:** the log is still there; the models load from cache with no new downloads
 10. Turn off Wi-Fi and restart Chrome → **Expected:** everything still works. Any failed request shows as "failed" in the log with the tooltip "no response (failed or blocked)".
 11. **Clear** → the list empties and the counts reset
+
+**Audit log:**
+12. Ask a question in Chat, index a tab and delete a document, then open the Privacy tab → **Expected:** the audit log lists all three, newest first: "chat query" with your question (click the row for the start of the reply and the passages it used), "document index" and "document delete", each with the document's title.
+13. Restart Chrome → **Expected:** the entries are still there
+14. **Clear** under the audit log → "No activity recorded yet." **Clear All Data** in Settings empties it too.
 
 ---
 

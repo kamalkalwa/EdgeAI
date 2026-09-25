@@ -90,15 +90,15 @@ EdgeAI is a privacy-first Chrome extension (MV3) that runs AI inference entirely
 extension/
 ├── src/
 │   ├── background/
-│   │   └── service-worker.ts        # Router, network log, context menu, bookmark import (309 lines)
+│   │   └── service-worker.ts        # Router, Trust panel logs, context menu, bookmark import (308 lines)
 │   ├── offscreen/
-│   │   └── offscreen.ts             # Inference engine (886 lines)
+│   │   └── offscreen.ts             # Inference engine (894 lines)
 │   ├── popup/
 │   │   ├── popup.html
 │   │   ├── popup.ts                 # Entry point and wiring (369 lines)
 │   │   └── modules/                 # chat, documents, onboarding, sessions, settings, trust, voice
 │   ├── lib/
-│   │   ├── types.ts                 # All TypeScript types (250 lines)
+│   │   ├── types.ts                 # All TypeScript types (252 lines)
 │   │   ├── utils.ts                 # Shared utilities (39 lines)
 │   │   ├── models/
 │   │   │   ├── embedding.ts         # Embedding + reranker models (140 lines)
@@ -107,9 +107,10 @@ extension/
 │   │   ├── page/
 │   │   │   └── read-tab.ts          # On-demand page reader for "Index this tab" (188 lines)
 │   │   ├── trust/
-│   │   │   ├── network-monitor.ts   # Network log entries: pure functions (143 lines)
-│   │   │   ├── request-reporter.ts  # Resource-timing reporter, one per context (35 lines)
-│   │   │   └── audit-log.ts         # Local audit log (52 lines)
+│   │   │   ├── network-monitor.ts   # Network log entries: pure functions (129 lines)
+│   │   │   ├── request-reporter.ts  # Resource-timing reporter, one per context (37 lines)
+│   │   │   ├── audit-log.ts         # Audit log entries: pure functions (55 lines)
+│   │   │   └── stored-log.ts        # StoredLog: a log the service worker keeps (79 lines)
 │   │   ├── storage/
 │   │   │   ├── vector-store.ts      # Orama vector store (332 lines)
 │   │   │   └── document-store.ts    # Dexie.js metadata store (74 lines)
@@ -143,23 +144,23 @@ extension/
 
 ### 2.1 Service Worker (`background/service-worker.ts`)
 
-**Role:** Lightweight message router. Does NOT run any ML inference, touch IndexedDB, or hold application state beyond the network log.
+**Role:** Lightweight message router. Does NOT run any ML inference, touch IndexedDB, or hold application state beyond the Trust panel's two logs.
 
 **Responsibilities:**
 1. Route messages between the popup and the offscreen document
 2. Create/ensure the offscreen document is alive (race-safe via `creatingOffscreen` promise)
-3. Keep the Trust panel's network log: the only writer (see [2.5](#25-network-log-trust-panel))
+3. Keep the Trust panel's network log and audit log, as their only writer (see [2.5](#25-network-log-trust-panel) and [2.6](#26-audit-log-trust-panel))
 4. "Index this page with EdgeAI" from the right-click menu (reads the tab with the page reader, see [2.3](#23-page-reader-libpageread-tabts))
 5. Read the bookmarks for an import once the user grants the optional `bookmarks` permission; the offscreen document picks and queues the new ones (see [14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts))
 6. Open onboarding tab on first install
 7. Pre-create offscreen document on install/startup for instant first query
 
-**No keepalive.** Chrome ends the worker after 30 s idle and wakes it on the next message or event. Nothing it does needs to outlive that: inference and model state live in the offscreen document, which Chrome keeps open on its own, and the log is written to storage 500 ms after the last report in a burst, well inside the 30 s the worker stays up after that report.
+**No keepalive.** Chrome ends the worker after 30 s idle and wakes it on the next message or event. Nothing it does needs to outlive that: inference and model state live in the offscreen document, which Chrome keeps open on its own, and each log is written to storage 500 ms after the last report in a burst, well inside the 30 s the worker stays up after that report.
 
 **Key implementation details:**
-- `NETWORK_ENTRIES` is handled before anything else, from every sender, the offscreen document included
+- `NETWORK_ENTRIES` and `AUDIT_ENTRY` are handled before anything else, from every sender, the offscreen document included
 - Other messages from the offscreen document URL are ignored to prevent circular routing loops
-- `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG` and `IMPORT_BOOKMARKS` are answered by the worker itself; for `IMPORT_BOOKMARKS` it reads the bookmarks and sends them on to the offscreen document
+- `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG`, `GET_AUDIT_LOG`, `CLEAR_AUDIT_LOG` and `IMPORT_BOOKMARKS` are answered by the worker itself; for `IMPORT_BOOKMARKS` it reads the bookmarks and sends them on to the offscreen document
 - All other messages forwarded to offscreen with `_target: 'offscreen'` tag
 - Error responses include the original `requestId` for correlation
 - External message listener reserved for future MCP client connections
@@ -209,7 +210,7 @@ See [Section 15](#15-popup-ui-controller) for full details.
 
 **How it works:**
 - Every EdgeAI page that runs code calls `reportNetworkRequests('<context>')` (`lib/trust/request-reporter.ts`) before anything else, and so does the service worker. It observes `PerformanceObserver({ type: 'resource', buffered: true })`, so requests made before it started are included.
-- Pages send the entries as `NETWORK_ENTRIES`; the worker records its own directly. The worker is the only writer: it dedupes by id, keeps the newest 1,000 (`appendEntries`), persists to `chrome.storage.local` under `networkRequests` 500 ms after the last report in a burst, and broadcasts `NETWORK_LOG_UPDATED` so an open Trust panel refreshes.
+- Pages send the entries as `NETWORK_ENTRIES`; the worker records its own directly. The worker is the only writer (`StoredLog`, `lib/trust/stored-log.ts`): it dedupes by id, keeps the newest 1,000, persists to `chrome.storage.local` under `networkRequests` 500 ms after the last report in a burst, and broadcasts `NETWORK_LOG_UPDATED` so an open Trust panel refreshes.
 - Each entry is `{ id, url, timestamp, statusCode, initiatorType, context, category }`. `category` is `model_download` for Hugging Face and its download mirrors (`huggingface.co`, `hf.co` and their subdomains) and `other` for anything else. The Privacy tab counts the `other` entries.
 - `lib/trust/__tests__/reporter-coverage.test.ts` fails if a page entry point or the service worker stops reporting, if a page without a script loads anything remote, or if code starts a worker of its own (a worker's requests land in a timeline no reporter sees). PDF.js's worker is the exception: it parses the bytes it is handed and fetches nothing while no cMap, font or wasm URL is set, which the test also checks.
 
@@ -218,6 +219,16 @@ See [Section 15](#15-popup-ui-controller) for full details.
 - An entry appears when its request finishes, so a download in progress shows up once it completes. A request that fails or is blocked is logged with status 0.
 - A request cancelled partway can leave no entry. Chrome records none for a Cache API download it gives up on mid-body, as it does when the disk is nearly full.
 - Sizes aren't logged: without host permissions, cross-origin transfer sizes read as 0.
+
+### 2.6 Audit Log (Trust panel)
+
+**What it records:** each chat question and search, with the passages retrieval handed over and their scores, the start of each reply, and each document indexed or deleted. An entry is `{ id, timestamp, type, query?, retrievedChunks?, responsePreview?, documentTitle? }`, where `type` is `chat_query`, `search`, `document_index` or `document_delete`.
+
+**How it works:**
+- The offscreen document does all four, and reports each as `AUDIT_ENTRY`. It can't write the log itself: an offscreen document gets `chrome.runtime` and no other extension API, so `chrome.storage` is undefined there.
+- The service worker keeps it as it keeps the network log (`StoredLog`): it checks each entry (`sanitizeAuditEntries`), keeps the newest 500, persists to `chrome.storage.local` under `auditLog`, and broadcasts `AUDIT_LOG_UPDATED` so an open Trust panel refreshes.
+- The Privacy tab reads it with `GET_AUDIT_LOG` and clears it with `CLEAR_AUDIT_LOG`. Clear All Data sends both logs' clear messages before it empties `chrome.storage.local`, because the worker holds each log in memory as well.
+- `offscreen/__tests__/extension-apis.test.ts` reads every module the offscreen document loads and fails on any `chrome.*` API other than `chrome.runtime`. The audit log used to be written from the offscreen document with `chrome.storage.local`: every write threw, the log stayed empty, and the unit tests, which stub `chrome`, all passed.
 
 ---
 
@@ -233,11 +244,12 @@ Popup  →  Service Worker  →  Offscreen Document
    ←  chrome.runtime broadcast bus  ←
 
 Every EdgeAI page  →  Service Worker    (NETWORK_ENTRIES, network log)
+Offscreen Document →  Service Worker    (AUDIT_ENTRY, audit log)
 ```
 
 **Outbound (to offscreen):** Popup sends → SW forwards with `_target: 'offscreen'` → Offscreen processes
 **Inbound (to popup):** Offscreen broadcasts via `chrome.runtime.sendMessage()` → Popup listens
-**Handled by the SW itself:** `NETWORK_ENTRIES`, `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG`, `IMPORT_BOOKMARKS` (the worker adds the bookmarks, which only it can read, before passing it on)
+**Handled by the SW itself:** `NETWORK_ENTRIES`, `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG`, `AUDIT_ENTRY`, `GET_AUDIT_LOG`, `CLEAR_AUDIT_LOG`, `IMPORT_BOOKMARKS` (the worker adds the bookmarks, which only it can read, before passing it on)
 
 ### 3.2 Message Types
 
@@ -269,6 +281,10 @@ Every EdgeAI page  →  Service Worker    (NETWORK_ENTRIES, network log)
 | `NETWORK_LOG_UPDATED` | SW → Popup | none | — (broadcast) |
 | `GET_NETWORK_LOG` | Popup → SW | none | `NETWORK_LOG` with `NetworkEntry[]` |
 | `CLEAR_NETWORK_LOG` | Popup → SW | none | `{ success: true }` |
+| `AUDIT_ENTRY` | Offscreen → SW | `AuditEntry` | none |
+| `AUDIT_LOG_UPDATED` | SW → Popup | none | — (broadcast) |
+| `GET_AUDIT_LOG` | Popup → SW | none | `AUDIT_LOG` with `AuditEntry[]` |
+| `CLEAR_AUDIT_LOG` | Popup → SW | none | `{ success: true }` |
 | `IMPORT_BOOKMARKS` | Popup → SW → Offscreen | none from the popup; `BookmarkInfo[]` from the SW | `{ added }` or `{ error }` |
 
 ### 3.3 Request ID Correlation
@@ -281,7 +297,7 @@ Every EdgeAI page  →  Service Worker    (NETWORK_ENTRIES, network log)
 
 ## 4. Type System
 
-All types are defined in `lib/types.ts` (225 lines). The extension follows Dependency Inversion Principle (DIP) with interface-first design.
+All types are defined in `lib/types.ts` (252 lines). The extension follows Dependency Inversion Principle (DIP) with interface-first design.
 
 ### 4.1 Core Types
 
@@ -534,7 +550,7 @@ The offscreen document only processes messages with `_target: 'offscreen'` to av
 | `IMPORT_BOOKMARKS` | `BookmarkImporter.import()` after `initStoresAndEmbeddings()` | Async `{ added }` once queued |
 | `SEARCH` | `handleSearch()` | Async results |
 | `LIST_DOCUMENTS` | `documentStore.listDocuments()` | Async list |
-| `DELETE_DOCUMENT` | Parallel delete from both stores | Async success |
+| `DELETE_DOCUMENT` | `handleDeleteDocument()`: reads the title for the audit log, then deletes from both stores | Async success |
 | `VOICE_START` | `handleVoiceStart()` | Async ready/error |
 | `VOICE_STOP` | `voiceSession.stop()` | Sync ack |
 

@@ -4,8 +4,9 @@
  * Responsibilities:
  * 1. Route messages between the popup and the offscreen document
  * 2. Create / ensure the offscreen document is alive
- * 3. Keep the Trust Panel's network log — every EdgeAI page reports its own
- *    requests here (NETWORK_ENTRIES), and this is the only writer
+ * 3. Keep the Trust Panel's two logs, as their only writer: the network log
+ *    (every EdgeAI page reports its own requests, NETWORK_ENTRIES) and the
+ *    audit log (the offscreen document reports what it did, AUDIT_ENTRY)
  * 4. "Index this page with EdgeAI" from the right-click menu
  * 5. Import bookmarks once the user allows it
  *
@@ -14,8 +15,10 @@
  */
 
 import type { Message, PageContentForIndex } from '@/lib/types';
-import { appendEntries, sanitizeEntries, type NetworkEntry } from '@/lib/trust/network-monitor';
+import { sanitizeEntries, type NetworkEntry } from '@/lib/trust/network-monitor';
+import { sanitizeAuditEntries, type AuditEntry } from '@/lib/trust/audit-log';
 import { reportNetworkRequests } from '@/lib/trust/request-reporter';
+import { StoredLog } from '@/lib/trust/stored-log';
 import { readTab, ReadTabError } from '@/lib/page/read-tab';
 import { getAllBookmarks } from '@/lib/connectors/bookmarks';
 
@@ -51,41 +54,31 @@ async function ensureOffscreenDocument(): Promise<void> {
   }
 }
 
-// ─── Network Log ─────────────────────────────────────────────────────────────
+// ─── Trust Panel Logs ────────────────────────────────────────────────────────
 //
 // Each EdgeAI page reports the requests it made (request-reporter.ts) and the
-// worker records its own. Kept under a new key: the old `networkLog` came from
-// chrome.webRequest, which never sees an extension's own requests, so it holds
-// nothing worth migrating.
+// worker records its own. The offscreen document reports what it did with the
+// user's data (audit-log.ts). The network log is kept under a new key: the old
+// `networkLog` came from chrome.webRequest, which never sees an extension's
+// own requests, so it holds nothing worth migrating.
 
-const LOG_KEY = 'networkRequests';
-let networkLog: NetworkEntry[] = [];
-let persistTimer: ReturnType<typeof setTimeout> | undefined;
-
-// Entries can arrive while the stored log is still loading; keep both.
-const logLoaded: Promise<void> = chrome.storage.local.get(LOG_KEY)
-  .then((result) => {
-    const recordedMeanwhile = networkLog;
-    networkLog = appendEntries(sanitizeEntries(result[LOG_KEY]), recordedMeanwhile);
-  })
-  .catch(console.error);
+const networkLog = new StoredLog<NetworkEntry>({
+  key: 'networkRequests',
+  max: 1000,
+  sanitize: sanitizeEntries,
+  // Lets an open Trust Panel refresh; rejects when no page is listening.
+  onPersisted: () => chrome.runtime.sendMessage({ type: 'NETWORK_LOG_UPDATED' }).catch(() => {}),
+});
 chrome.storage.local.remove('networkLog').catch(() => {});
 
-function recordNetworkEntries(entries: NetworkEntry[]): void {
-  if (entries.length === 0) return;
-  appendEntries(networkLog, entries);
-  clearTimeout(persistTimer);
-  // Short debounce: a model download reports dozens of files in bursts. The
-  // worker stays up for 30 s after the message that scheduled this.
-  persistTimer = setTimeout(async () => {
-    await logLoaded;
-    await chrome.storage.local.set({ [LOG_KEY]: networkLog }).catch(console.error);
-    // Lets an open Trust Panel refresh; rejects when no page is listening.
-    chrome.runtime.sendMessage({ type: 'NETWORK_LOG_UPDATED' }).catch(() => {});
-  }, 500);
-}
+const auditLog = new StoredLog<AuditEntry>({
+  key: 'auditLog',
+  max: 500,
+  sanitize: sanitizeAuditEntries,
+  onPersisted: () => chrome.runtime.sendMessage({ type: 'AUDIT_LOG_UPDATED' }).catch(() => {}),
+});
 
-reportNetworkRequests('service-worker', recordNetworkEntries);
+reportNetworkRequests('service-worker', (entries) => networkLog.record(entries));
 
 // ─── Message Routing ──────────────────────────────────────────────────────────
 
@@ -93,7 +86,11 @@ chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse) => {
     // Every EdgeAI page reports its requests, the offscreen document included.
     if (message.type === 'NETWORK_ENTRIES') {
-      recordNetworkEntries(sanitizeEntries(message.payload));
+      networkLog.record(sanitizeEntries(message.payload));
+      return false;
+    }
+    if (message.type === 'AUDIT_ENTRY') {
+      auditLog.record(sanitizeAuditEntries([message.payload]));
       return false;
     }
 
@@ -103,19 +100,21 @@ chrome.runtime.onMessage.addListener(
     // create a circular routing loop and spam port-closed errors.
     if (sender.url === OFFSCREEN_URL) return false;
 
-    // Network log queries — handled directly in SW, not forwarded to offscreen
+    // The Trust Panel's logs — handled here, not forwarded to the offscreen document
     if (message.type === 'GET_NETWORK_LOG') {
-      logLoaded.then(() => sendResponse({ type: 'NETWORK_LOG', payload: networkLog }));
+      networkLog.read().then((payload) => sendResponse({ type: 'NETWORK_LOG', payload }));
       return true;
     }
     if (message.type === 'CLEAR_NETWORK_LOG') {
-      // After the load, or the stored entries would come back.
-      logLoaded.then(async () => {
-        networkLog = [];
-        clearTimeout(persistTimer);
-        await chrome.storage.local.set({ [LOG_KEY]: [] }).catch(console.error);
-        sendResponse({ success: true });
-      });
+      networkLog.clear().then(() => sendResponse({ success: true }));
+      return true;
+    }
+    if (message.type === 'GET_AUDIT_LOG') {
+      auditLog.read().then((payload) => sendResponse({ type: 'AUDIT_LOG', payload }));
+      return true;
+    }
+    if (message.type === 'CLEAR_AUDIT_LOG') {
+      auditLog.clear().then(() => sendResponse({ success: true }));
       return true;
     }
 

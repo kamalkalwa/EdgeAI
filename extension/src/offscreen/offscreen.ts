@@ -26,7 +26,7 @@ import { SileroVAD } from '@/lib/voice/vad';
 import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
 import { nanoid } from '@/lib/utils';
-import { appendAuditEntry } from '@/lib/trust/audit-log';
+import type { AuditEntry } from '@/lib/trust/audit-log';
 import { reportNetworkRequests } from '@/lib/trust/request-reporter';
 import { USER_DATABASES } from '@/lib/storage/db-names';
 import { DEFAULT_LLM, FALLBACK_LLM } from '@/lib/models/llm-catalog';
@@ -34,6 +34,11 @@ import { BookmarkImporter, type BookmarkInfo } from '@/lib/connectors/bookmarks'
 
 // Every model download this document makes goes into the Trust Panel's log.
 reportNetworkRequests('offscreen');
+
+/** Adds an entry to the Trust Panel's audit log, which the service worker keeps: this document has no chrome.storage. */
+function reportAudit(entry: AuditEntry): void {
+  chrome.runtime.sendMessage({ type: 'AUDIT_ENTRY', payload: entry }).catch(() => {});
+}
 
 // ─── ONNX Runtime Configuration for Chrome Extension CSP ────────────────────
 //
@@ -406,14 +411,14 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
 
   // Audit log entry
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
-  appendAuditEntry({
+  reportAudit({
     id: requestId,
     timestamp: Date.now(),
     type: 'chat_query',
     query: lastUserMsg?.content,
     retrievedChunks: auditChunks.length > 0 ? auditChunks : undefined,
     responsePreview: fullResponse.slice(0, 200),
-  }).catch(console.error);
+  });
 }
 
 // ─── Document Indexing Handler ────────────────────────────────────────────────
@@ -496,12 +501,12 @@ async function handleIndexDocument(
     },
   });
 
-  appendAuditEntry({
+  reportAudit({
     id: nanoid(),
     timestamp: Date.now(),
     type: 'document_index',
     documentTitle: request.metadata.title,
-  }).catch(console.error);
+  });
 }
 
 /** Queues a document on indexQueue. Settles once it is stored, or has failed and said so. */
@@ -516,6 +521,21 @@ function enqueueIndex(request: IndexDocumentRequest, requestId: string): Promise
       )
   );
   return indexQueue;
+}
+
+async function handleDeleteDocument(documentId: string): Promise<void> {
+  // Looked up first, so the audit log can say what was deleted.
+  const doc = await documentStore?.getDocument(documentId);
+  await Promise.all([
+    vectorStore?.deleteByDocumentId(documentId),
+    documentStore?.deleteDocument(documentId),
+  ]);
+  reportAudit({
+    id: nanoid(),
+    timestamp: Date.now(),
+    type: 'document_delete',
+    documentTitle: doc?.title ?? documentId,
+  });
 }
 
 // ─── Bookmark Import ──────────────────────────────────────────────────────────
@@ -553,7 +573,7 @@ async function handleSearch(request: SearchRequest): Promise<unknown> {
     { topK: request.topK ?? 5, filters: request.filters }
   );
 
-  appendAuditEntry({
+  reportAudit({
     id: nanoid(),
     timestamp: Date.now(),
     type: 'search',
@@ -563,7 +583,7 @@ async function handleSearch(request: SearchRequest): Promise<unknown> {
       source: c.chunk.metadata.source,
       score: c.score,
     })),
-  }).catch(console.error);
+  });
 
   return context.chunks;
 }
@@ -835,25 +855,13 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case 'DELETE_DOCUMENT': {
-        if (!payload || typeof (payload as { documentId?: string }).documentId !== 'string') {
+        const documentId = (payload as { documentId?: unknown } | undefined)?.documentId;
+        if (typeof documentId !== 'string') {
           sendResponse({ error: 'No documentId' });
           return false;
         }
-        const deleteDocId = (payload as { documentId: string; title?: string }).documentId;
-        const deleteTitle = (payload as { documentId: string; title?: string }).title;
-        Promise.all([
-          vectorStore?.deleteByDocumentId(deleteDocId),
-          documentStore?.deleteDocument(deleteDocId),
-        ])
-          .then(() => {
-            appendAuditEntry({
-              id: nanoid(),
-              timestamp: Date.now(),
-              type: 'document_delete',
-              documentTitle: deleteTitle ?? deleteDocId,
-            }).catch(console.error);
-            sendResponse({ success: true });
-          })
+        handleDeleteDocument(documentId)
+          .then(() => sendResponse({ success: true }))
           .catch((err) => sendResponse({ error: err.message }));
         return true;
       }

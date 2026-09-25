@@ -7,7 +7,7 @@ import type { DocumentMetadata, Message } from '@/lib/types';
 import { formatBytes } from '@/lib/utils';
 import type { NetworkEntry } from '@/lib/trust/network-monitor';
 import { formatEntryUrl } from '@/lib/trust/network-monitor';
-import { getAuditLog, clearAuditLog, exportAuditLog, type AuditEntry } from '@/lib/trust/audit-log';
+import { exportAuditLog, type AuditEntry } from '@/lib/trust/audit-log';
 import { $ } from './dom';
 import { state, type ChatSession } from './state';
 
@@ -191,8 +191,13 @@ export function initNetworkLogListeners(): void {
 
 let auditLogCache: AuditEntry[] = [];
 
+async function fetchAuditLog(): Promise<AuditEntry[]> {
+  const res = await chrome.runtime.sendMessage({ type: 'GET_AUDIT_LOG' }).catch(() => null);
+  return (res?.payload ?? []) as AuditEntry[];
+}
+
 async function loadAuditLog(): Promise<void> {
-  auditLogCache = await getAuditLog();
+  auditLogCache = await fetchAuditLog();
   renderAuditLog();
 }
 
@@ -273,14 +278,13 @@ function renderAuditLog(): void {
 
 export function initAuditLogListeners(): void {
   $('btn-clear-audit-log').addEventListener('click', async () => {
-    await clearAuditLog();
+    await chrome.runtime.sendMessage({ type: 'CLEAR_AUDIT_LOG' }).catch(() => null);
     auditLogCache = [];
     renderAuditLog();
   });
 
   $('btn-export-audit-log').addEventListener('click', async () => {
-    const entries = await getAuditLog();
-    const json = exportAuditLog(entries);
+    const json = exportAuditLog(await fetchAuditLog());
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -288,5 +292,10 @@ export function initAuditLogListeners(): void {
     a.download = `edgeai-audit-log-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  });
+
+  // The service worker announces new entries; refresh while the panel is showing.
+  chrome.runtime.onMessage.addListener((message: Message) => {
+    if (message.type === 'AUDIT_LOG_UPDATED' && state.activeTab === 'trust') loadAuditLog();
   });
 }
