@@ -60,7 +60,7 @@ Full policy: https://kamalkalwa.github.io/EdgeAI/privacy.html. No server, no acc
 ```
 npm run dev          # vite build --watch; reload in chrome://extensions
 npm run type-check
-npm test             # 121 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, page reader, VAD, network log
+npm test             # 127 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, page reader, VAD, network log
 npm run build:store  # production build + zip; commit first, the Trust Panel shows the build's git hash
 ```
 

@@ -30,6 +30,7 @@ import { appendAuditEntry } from '@/lib/trust/audit-log';
 import { reportNetworkRequests } from '@/lib/trust/request-reporter';
 import { USER_DATABASES } from '@/lib/storage/db-names';
 import { DEFAULT_LLM, FALLBACK_LLM } from '@/lib/models/llm-catalog';
+import { BookmarkImporter, type BookmarkInfo } from '@/lib/connectors/bookmarks';
 
 // Every model download this document makes goes into the Trust Panel's log.
 reportNetworkRequests('offscreen');
@@ -503,6 +504,40 @@ async function handleIndexDocument(
   }).catch(console.error);
 }
 
+/** Queues a document on indexQueue. Settles once it is stored, or has failed and said so. */
+function enqueueIndex(request: IndexDocumentRequest, requestId: string): Promise<void> {
+  indexQueue = indexQueue.then(() =>
+    handleIndexDocument(request, requestId)
+      .catch((err) =>
+        broadcastStatus({
+          type: 'INDEX_ERROR',
+          payload: { error: err.message, requestId },
+        })
+      )
+  );
+  return indexQueue;
+}
+
+// ─── Bookmark Import ──────────────────────────────────────────────────────────
+// The service worker reads the bookmarks (only it can) and sends them here:
+// picking the ones not imported yet takes the queue as well as the store.
+
+const bookmarkImporter = new BookmarkImporter(
+  (doc) => enqueueIndex(doc, nanoid()),
+  async () => {
+    if (!documentStore) throw new Error('Storage not initialized');
+    const docs = await documentStore.listDocuments();
+    return docs.filter((d) => d.source === 'bookmark' && d.sourcePath).map((d) => d.sourcePath as string);
+  },
+);
+
+async function importBookmarks(bookmarks: BookmarkInfo[]): Promise<number> {
+  // Waits for a load or a Clear All Data in progress, so nothing is queued
+  // that can't be indexed and nothing is compared against a store being wiped.
+  await initStoresAndEmbeddings();
+  return bookmarkImporter.import(bookmarks);
+}
+
 // ─── Search Handler ───────────────────────────────────────────────────────────
 
 async function handleSearch(request: SearchRequest): Promise<unknown> {
@@ -734,17 +769,17 @@ chrome.runtime.onMessage.addListener(
         if (!payload) { sendResponse({ type: 'INDEX_ERROR', payload: { error: 'No payload' } }); return false; }
         // Chain onto the sequential queue — bulk imports (e.g. 300-note vault) otherwise
         // flood the ONNX/WebGPU worker with parallel embedding sessions and OOM.
-        indexQueue = indexQueue.then(() =>
-          handleIndexDocument(payload as IndexDocumentRequest, requestId ?? nanoid())
-            .catch((err) =>
-              broadcastStatus({
-                type: 'INDEX_ERROR',
-                payload: { error: err.message, requestId },
-              })
-            )
-        );
+        enqueueIndex(payload as IndexDocumentRequest, requestId ?? nanoid());
         sendResponse({ acknowledged: true });
         return false;
+
+      case 'IMPORT_BOOKMARKS':
+        if (!Array.isArray(payload)) { sendResponse({ error: 'No bookmarks' }); return false; }
+        // Answers once the new bookmarks are queued; they are indexed one at a time after.
+        importBookmarks(payload as BookmarkInfo[])
+          .then((added) => sendResponse({ added }))
+          .catch((err) => sendResponse({ error: err instanceof Error ? err.message : String(err) }));
+        return true;
 
       case 'SEARCH':
         if (!payload) { sendResponse({ type: 'SEARCH_RESULTS', payload: [] }); return false; }

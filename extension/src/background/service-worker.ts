@@ -13,11 +13,11 @@
  * or put anything into a page the user hasn't asked EdgeAI to read.
  */
 
-import type { DocumentMetadata, Message, PageContentForIndex } from '@/lib/types';
+import type { Message, PageContentForIndex } from '@/lib/types';
 import { appendEntries, sanitizeEntries, type NetworkEntry } from '@/lib/trust/network-monitor';
 import { reportNetworkRequests } from '@/lib/trust/request-reporter';
 import { readTab, ReadTabError } from '@/lib/page/read-tab';
-import { getAllBookmarks, newBookmarkDocuments } from '@/lib/connectors/bookmarks';
+import { getAllBookmarks } from '@/lib/connectors/bookmarks';
 
 const OFFSCREEN_URL = chrome.runtime.getURL('src/offscreen/offscreen.html');
 let creatingOffscreen: Promise<void> | null = null;
@@ -240,8 +240,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // and Chrome can close the toolbar popup while it shows the prompt, so the
 // grant itself starts the import (permissions.onAdded) and the Import button
 // asks for the same run (IMPORT_BOOKMARKS); whichever arrives second joins the
-// first. Bookmarks already in the index are skipped, so importing again only
-// adds new ones.
+// first. This worker reads the bookmarks; the offscreen document picks the
+// ones not imported yet, counting those still waiting to be indexed, so
+// importing again only adds new ones.
 
 interface BookmarkImport {
   done: Promise<{ added: number }>;
@@ -261,18 +262,9 @@ function startBookmarkImport(): BookmarkImport {
 async function importBookmarks(): Promise<{ added: number }> {
   const bookmarks = await getAllBookmarks();
   await ensureOffscreenDocument();
-  const listed = await chrome.runtime.sendMessage({ type: 'LIST_DOCUMENTS', _target: 'offscreen' });
-  if (listed?.error) throw new Error(listed.error);
-  const imported = ((listed?.payload ?? []) as DocumentMetadata[])
-    .filter((d) => d.source === 'bookmark' && d.sourcePath)
-    .map((d) => d.sourcePath as string);
-
-  const docs = newBookmarkDocuments(bookmarks, imported);
-  for (const doc of docs) {
-    // Acknowledged at once; the offscreen document indexes them one at a time.
-    await chrome.runtime.sendMessage({ type: 'INDEX_DOCUMENT', _target: 'offscreen', payload: doc });
-  }
-  return { added: docs.length };
+  const res = await chrome.runtime.sendMessage({ type: 'IMPORT_BOOKMARKS', _target: 'offscreen', payload: bookmarks });
+  if (typeof res?.added !== 'number') throw new Error(res?.error ?? 'No answer from the offscreen document');
+  return { added: res.added };
 }
 
 chrome.permissions.onAdded.addListener(({ permissions }) => {

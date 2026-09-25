@@ -36,7 +36,7 @@ export type MessageType =
   | 'AUDIT_LOG'
   | 'CLEAR_AUDIT_LOG'
   | 'CHECK_DOCUMENT_EXISTS'
-  | 'IMPORT_BOOKMARKS'     // page → service worker: import bookmarks not yet indexed
+  | 'IMPORT_BOOKMARKS'     // page → service worker (reads them) → offscreen (queues the ones not imported yet)
   | 'CLEAR_ALL_DATA';       // wipe every IndexedDB store (documents, vectors, vault handle)
 
 export interface Message<T = unknown> {

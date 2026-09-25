@@ -90,9 +90,9 @@ EdgeAI is a privacy-first Chrome extension (MV3) that runs AI inference entirely
 extension/
 ├── src/
 │   ├── background/
-│   │   └── service-worker.ts        # Router, network log, context menu, bookmark import (317 lines)
+│   │   └── service-worker.ts        # Router, network log, context menu, bookmark import (309 lines)
 │   ├── offscreen/
-│   │   └── offscreen.ts             # Inference engine (851 lines)
+│   │   └── offscreen.ts             # Inference engine (886 lines)
 │   ├── popup/
 │   │   ├── popup.html
 │   │   ├── popup.ts                 # Entry point and wiring (369 lines)
@@ -124,7 +124,7 @@ extension/
 │   │   └── connectors/
 │   │       ├── obsidian.ts          # File System Access API (204 lines)
 │   │       ├── pdf.ts               # pdf.js connector (85 lines)
-│   │       └── bookmarks.ts         # Chrome Bookmarks API, titles and URLs (78 lines)
+│   │       └── bookmarks.ts         # Chrome Bookmarks API, titles and URLs, BookmarkImporter (129 lines)
 │   ├── privacy/
 │   │   └── privacy.html             # Privacy policy, bundled
 │   ├── stealth/
@@ -150,7 +150,7 @@ extension/
 2. Create/ensure the offscreen document is alive (race-safe via `creatingOffscreen` promise)
 3. Keep the Trust panel's network log: the only writer (see [2.5](#25-network-log-trust-panel))
 4. "Index this page with EdgeAI" from the right-click menu (reads the tab with the page reader, see [2.3](#23-page-reader-libpageread-tabts))
-5. Import bookmarks once the user grants the optional `bookmarks` permission (see [14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts))
+5. Read the bookmarks for an import once the user grants the optional `bookmarks` permission; the offscreen document picks and queues the new ones (see [14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts))
 6. Open onboarding tab on first install
 7. Pre-create offscreen document on install/startup for instant first query
 
@@ -159,7 +159,7 @@ extension/
 **Key implementation details:**
 - `NETWORK_ENTRIES` is handled before anything else, from every sender, the offscreen document included
 - Other messages from the offscreen document URL are ignored to prevent circular routing loops
-- `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG` and `IMPORT_BOOKMARKS` are answered by the worker itself
+- `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG` and `IMPORT_BOOKMARKS` are answered by the worker itself; for `IMPORT_BOOKMARKS` it reads the bookmarks and sends them on to the offscreen document
 - All other messages forwarded to offscreen with `_target: 'offscreen'` tag
 - Error responses include the original `requestId` for correlation
 - External message listener reserved for future MCP client connections
@@ -237,7 +237,7 @@ Every EdgeAI page  →  Service Worker    (NETWORK_ENTRIES, network log)
 
 **Outbound (to offscreen):** Popup sends → SW forwards with `_target: 'offscreen'` → Offscreen processes
 **Inbound (to popup):** Offscreen broadcasts via `chrome.runtime.sendMessage()` → Popup listens
-**Handled by the SW itself:** `NETWORK_ENTRIES`, `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG`, `IMPORT_BOOKMARKS`
+**Handled by the SW itself:** `NETWORK_ENTRIES`, `GET_NETWORK_LOG`, `CLEAR_NETWORK_LOG`, `IMPORT_BOOKMARKS` (the worker adds the bookmarks, which only it can read, before passing it on)
 
 ### 3.2 Message Types
 
@@ -269,7 +269,7 @@ Every EdgeAI page  →  Service Worker    (NETWORK_ENTRIES, network log)
 | `NETWORK_LOG_UPDATED` | SW → Popup | none | — (broadcast) |
 | `GET_NETWORK_LOG` | Popup → SW | none | `NETWORK_LOG` with `NetworkEntry[]` |
 | `CLEAR_NETWORK_LOG` | Popup → SW | none | `{ success: true }` |
-| `IMPORT_BOOKMARKS` | Popup → SW | none | `{ added }` or `{ error }` |
+| `IMPORT_BOOKMARKS` | Popup → SW → Offscreen | none from the popup; `BookmarkInfo[]` from the SW | `{ added }` or `{ error }` |
 
 ### 3.3 Request ID Correlation
 
@@ -518,7 +518,7 @@ IndexDocumentRequest → handleIndexDocument()
             Progress: INDEX_DONE
 ```
 
-**Backpressure (ADR-005):** `indexQueue = indexQueue.then(...)` — sequential FIFO queue prevents concurrent embedding sessions from OOM-ing during bulk vault imports (e.g., 300-note Obsidian vault).
+**Backpressure (ADR-005):** `enqueueIndex()` chains each document onto `indexQueue` — sequential FIFO queue prevents concurrent embedding sessions from OOM-ing during bulk vault imports (e.g., 300-note Obsidian vault). It returns a promise that settles once that document is stored or has failed; the bookmark import uses it to know which bookmarks are still waiting ([14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts)).
 
 ### 5.6 Message Router
 
@@ -531,6 +531,7 @@ The offscreen document only processes messages with `_target: 'offscreen'` to av
 | `GET_STATUS` | Return model states | Sync `STATUS` |
 | `CHAT` | `handleChat()` | Sync ack, then stream |
 | `INDEX_DOCUMENT` | Queued `handleIndexDocument()` | Sync ack |
+| `IMPORT_BOOKMARKS` | `BookmarkImporter.import()` after `initStoresAndEmbeddings()` | Async `{ added }` once queued |
 | `SEARCH` | `handleSearch()` | Async results |
 | `LIST_DOCUMENTS` | `documentStore.listDocuments()` | Async list |
 | `DELETE_DOCUMENT` | Parallel delete from both stores | Async success |
@@ -1106,9 +1107,11 @@ Imports each bookmark's title and URL as a small document. No page is fetched, s
 
 **Flow:**
 1. Import → Chrome Bookmarks calls `chrome.permissions.request({ permissions: ['bookmarks'] })` the first time. A refusal shows a toast and stops.
-2. The popup sends `IMPORT_BOOKMARKS`; the service worker runs the import and answers `{ added }` or `{ error }`.
-3. The worker lists the stored documents, keeps the `sourcePath` of those with `source: 'bookmark'`, and `newBookmarkDocuments()` skips any URL already imported (and repeats within the tree). Each new bookmark becomes `INDEX_DOCUMENT` with content `title\nurl`; the offscreen queue indexes them one at a time.
+2. The popup sends `IMPORT_BOOKMARKS`. The service worker reads the bookmark tree (the offscreen document can't) and sends the list on to the offscreen document, which answers `{ added }` or `{ error }` once the new bookmarks are queued.
+3. The offscreen document waits for its stores and embeddings (`initStoresAndEmbeddings()`), then `BookmarkImporter` picks the new bookmarks: `newBookmarkDocuments()` skips any URL already imported (and repeats within the tree). Each new bookmark becomes a document with content `title\nurl`, indexed one at a time on `indexQueue`.
 4. The button shows "✓ N bookmarks" or "✓ Already imported".
+
+**Each URL is imported once, even while an earlier import is still indexing.** A long bookmark list takes minutes to index, and the Import button is ready again after three seconds. `BookmarkImporter` counts a URL as imported from the moment it is queued, not only once it is stored, and one import picks at a time. It reads the queued URLs before the stored ones: a URL leaves the queue only after its document is stored, so it can't fall between the two reads. A URL whose indexing failed leaves the queue without being stored, so the next import tries it again.
 
 **The permission prompt can close the popup.** The worker also listens for `chrome.permissions.onAdded` and starts the import itself when `bookmarks` is granted. Both paths share one run (`startBookmarkImport()`); if no page is waiting for the answer, the worker reports the result with a notification.
 
@@ -1173,13 +1176,13 @@ const state = {
 
 ### 15.4 Import Flows
 
-Obsidian and PDF imports are async generators, processed one document at a time. The bookmark import runs in the service worker:
+Obsidian and PDF imports are async generators, processed one document at a time. The bookmark import runs in the service worker and the offscreen document:
 
 | Source | Trigger | Module | Notes |
 |---|---|---|---|
 | Obsidian | Click button → `selectVault()` | Dynamic import | Shows file count during indexing |
 | PDF | Click → file input → `indexPdfFiles()` | Dynamic import | Multi-file, shows N/total |
-| Bookmarks | Click → permission prompt → `IMPORT_BOOKMARKS` | Service worker | Titles and URLs only; skips URLs already imported ([14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts)) |
+| Bookmarks | Click → permission prompt → `IMPORT_BOOKMARKS` | Service worker reads, offscreen queues | Titles and URLs only; skips URLs already imported or queued ([14.3](#143-chrome-bookmarks-connector-libconnectorsbookmarksts)) |
 
 **Guard:** All import buttons check `state.embeddingsReady` before proceeding — shows "Wait: loading embeddings…" for 3 seconds if not ready.
 
