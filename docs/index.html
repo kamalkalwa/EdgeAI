@@ -6,7 +6,7 @@
   <title>EdgeAI — Your AI. Your Device. Your Data.</title>
   <meta name="description" content="A fully private AI assistant that runs locally in your browser. No API keys, no accounts, no data leaves your device." />
   <meta property="og:title" content="EdgeAI — Private AI Assistant" />
-  <meta property="og:description" content="100% local AI. Zero data sent. Runs in your browser." />
+  <meta property="og:description" content="Local AI in your browser. Your documents and chats stay on your device." />
   <meta property="og:type" content="website" />
   <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABXSURBVFhH7c4xAQAgDASxRv496V8ICjBIwm0B/Gl295nZc3a/n919Zvec3e9nd5/dfWb3nN3vZ3ef3X1m95zd72d3n919Zvec3e9nd5/dfWb3nN3vZ/8JuAE7TBIhGMSWNAAAAABJRU5ErkJggg==" />
   <style>
@@ -220,19 +220,6 @@
     }
     .enterprise h2 { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
     .enterprise p { color: var(--text-muted); max-width: 560px; margin: 0 auto 24px; }
-    .enterprise blockquote {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--accent);
-      border-radius: 8px;
-      padding: 20px 24px;
-      text-align: left;
-      max-width: 560px;
-      margin: 0 auto;
-      font-style: italic;
-      color: var(--text-muted);
-      font-size: 14px;
-    }
 
     /* Footer */
     footer {
@@ -273,7 +260,7 @@
   </div>
   <div class="badge-row">
     <span class="badge"><span class="dot green"></span> 100% Local</span>
-    <span class="badge"><span class="dot green"></span> Zero Data Sent</span>
+    <span class="badge"><span class="dot green"></span> No Accounts</span>
     <span class="badge"><span class="dot blue"></span> Open Source</span>
   </div>
 </section>
@@ -304,7 +291,7 @@
     <div class="feature-card">
       <span class="icon">&#x1f6e1;&#xfe0f;</span>
       <h3>Trust Panel</h3>
-      <p>Live network monitor proves zero external requests. Audit log tracks every query. Build hash links to open source code.</p>
+      <p>A network log lists every request EdgeAI makes: the one-time model download, and nothing after it. Audit log tracks every query. Build hash links to open source code.</p>
     </div>
     <div class="feature-card">
       <span class="icon">&#x26a1;</span>
@@ -316,7 +303,7 @@
 
 <section class="trust" id="trust">
   <h2>Verifiable privacy, not just promises</h2>
-  <p>Most "private" AI tools ask you to trust them. EdgeAI lets you verify. The Trust Panel shows every network request — after model download, the count is zero.</p>
+  <p>Most "private" AI tools ask you to trust them. EdgeAI shows its work. The Trust Panel lists every network request it makes, and once the models are downloaded the list stops growing. You can watch the same traffic in Chrome DevTools; the <a href="privacy.html#verify-network">privacy policy</a> shows how.</p>
   <div class="trust-stats">
     <div class="trust-stat">
       <span class="number">0</span>
@@ -324,7 +311,7 @@
     </div>
     <div class="trust-stat">
       <span class="number">0</span>
-      <span class="label">Data sent to servers</span>
+      <span class="label">Documents or chats uploaded</span>
     </div>
     <div class="trust-stat">
       <span class="number">100%</span>
@@ -357,7 +344,7 @@
     <li>
       <div>
         <h4>Verify it's private</h4>
-        <p>Open the Trust Panel. The network monitor shows zero external requests. The audit log shows every query — stored locally, never transmitted.</p>
+        <p>Open the Privacy tab. The network log lists every request EdgeAI has made: model downloads from Hugging Face, and nothing else. The audit log shows every query — stored locally, never transmitted.</p>
       </div>
     </li>
   </ol>
@@ -366,11 +353,6 @@
 <section class="enterprise">
   <h2>Built for enterprise trust</h2>
   <p>When your team needs AI but your data can't leave the building, EdgeAI is the answer. Every query, every document, every conversation stays on the user's device.</p>
-  <blockquote>
-    "After Samsung's ChatGPT data leak, we banned all cloud AI tools. EdgeAI gives our team AI capabilities with zero data exposure risk. The network monitor proves it."
-    <br /><br />
-    <strong>— The problem EdgeAI solves for every security-conscious organization</strong>
-  </blockquote>
 </section>
 
 <footer>

@@ -123,7 +123,16 @@
   </ul>
 
   <h2>Model Downloads</h2>
-  <p>The only network requests EdgeAI makes are to download AI model weight files from Hugging Face (<code>huggingface.co</code> and its <code>hf.co</code> download mirrors) on first use. The WebGPU model runtime library is bundled inside the extension package; no code is fetched at runtime. Model files are cached locally via the browser's Cache API and are not downloaded again unless you delete them (Settings → Delete Downloaded Models). The Network Activity Log in the Trust Panel records every request the extension itself makes, so you can check this yourself.</p>
+  <p>The only network requests EdgeAI makes are to download AI model weight files from Hugging Face (<code>huggingface.co</code> and its <code>hf.co</code> download mirrors) on first use. The WebGPU model runtime library is bundled inside the extension package; no code is fetched at runtime. Model files are cached locally via the browser's Cache API and are not downloaded again unless you delete them (Settings → Delete Downloaded Models). The network log in EdgeAI's Privacy tab lists every request EdgeAI's own pages make, and you can check that log with Chrome's own tools (see below).</p>
+
+  <h2 id="verify-network">Check the Network Log Yourself</h2>
+  <p>EdgeAI keeps its network log itself: each of its pages records the requests it makes, using the browser's resource timing, and a request appears in the log once it finishes. To check the log with a tool EdgeAI doesn't control:</p>
+  <ol>
+    <li>Open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong> (top right).</li>
+    <li>On the EdgeAI card, under <strong>Inspect views</strong>, click the link ending in <strong>offscreen.html</strong>. That is the background page that downloads and runs the models. If it isn't listed, open EdgeAI once and check again.</li>
+    <li>In the DevTools window that opens, choose the <strong>Network</strong> tab and use EdgeAI as usual. Every request that page makes appears there, and should match the log.</li>
+  </ol>
+  <p>The popup works the same way (right-click inside it, then Inspect), as does the service worker (its link on the same card). DevTools records only while it is open.</p>
 
   <h2>Data Stored Locally</h2>
   <p>All user data is stored in your browser's local storage (IndexedDB and chrome.storage.local):</p>
@@ -145,16 +154,17 @@
   </ul>
 
   <h2>Permissions Explained</h2>
+  <p>EdgeAI has no access to the websites you visit. It reads a page only when you ask it to index that page.</p>
   <ul>
-    <li><strong>storage / unlimitedStorage:</strong> Store documents, embeddings, and model cache locally</li>
-    <li><strong>offscreen:</strong> Run AI inference in a background document (required for WebGPU access)</li>
-    <li><strong>activeTab / scripting:</strong> Extract page content when you use "Index this tab"</li>
-    <li><strong>bookmarks:</strong> Import bookmarks for indexing (only when you explicitly choose to)</li>
-    <li><strong>host_permissions (all URLs):</strong> Download AI model files from Hugging Face and extract content from any tab you choose to index</li>
-    <li><strong>webRequest:</strong> Power the network activity monitor in the Trust Panel. It records only requests made by EdgeAI itself; requests made by websites you visit are never observed or stored</li>
-    <li><strong>alarms / notifications:</strong> Support voice-initiated reminders</li>
+    <li><strong>storage / unlimitedStorage:</strong> Store your documents, embeddings, chats and settings on this device, and cache the model files</li>
+    <li><strong>offscreen:</strong> Run the AI models in a background document (required for WebGPU access)</li>
+    <li><strong>activeTab / scripting:</strong> Read the text of a page when you index it. Chrome allows this only on the tab where you opened EdgeAI (toolbar icon, keyboard shortcut or right-click menu), and only until that tab goes to another page</li>
     <li><strong>contextMenus:</strong> Add "Index this page with EdgeAI" to the right-click menu</li>
+    <li><strong>notifications:</strong> Tell you when a page you right-clicked is being indexed or couldn't be read, and when a bookmark import finishes</li>
+    <li><strong>sidePanel:</strong> Open EdgeAI in Chrome's side panel</li>
+    <li><strong>bookmarks (optional):</strong> Asked for only when you choose Import → Chrome Bookmarks. EdgeAI imports each bookmark's title and address; it doesn't visit the pages</li>
   </ul>
+  <p>Model files download from Hugging Face without any website permission: Hugging Face allows downloads from other origins, so none is needed.</p>
 
   <h2>Open Source</h2>
   <p>EdgeAI is fully open source. You can inspect every line of code, verify the build, and confirm that no data exfiltration occurs. The exact commit hash of the running build is shown in the Trust Panel.</p>

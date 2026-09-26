@@ -1,7 +1,7 @@
 # EdgeAI — Manual Testing Guide
 
 This guide walks through the full sanity check for all implemented features
-(Milestones 1–5). Run it before any demo, interview, or validation session.
+(Milestones 1–6). Run it before any demo, interview, or validation session.
 
 ---
 
@@ -20,7 +20,7 @@ This guide walks through the full sanity check for all implemented features
 cd EdgeAI/extension
 npm run type-check       # expect: 0 errors
 npm run build            # expect: dist/ folder populated with manifest + chunks
-npm test                 # expect: 68 passed, 0 failed, ~500ms
+npm test                 # expect: 139 passed, 0 failed, ~500ms
 ```
 
 **Pass criteria:** No red output from any of the three commands.
@@ -79,7 +79,7 @@ npm test                 # expect: 68 passed, 0 failed, ~500ms
 
 1. Type: `What is the capital of France?`
 2. Press Enter or click Send
-3. **Expected:** Streaming response arrives token-by-token, answers "Paris"
+3. **Expected:** Streaming response arrives token-by-token, answers "Paris", and doesn't mention documents, notes or sources (nothing is imported yet)
 4. Type a follow-up: `And what's its population?`
 5. **Expected:** LLM uses conversation history, answers coherently without re-stating the question
 
@@ -165,40 +165,51 @@ After importing the vault from §6:
 
 ## 9. Document Import — Bookmarks
 
-1. Create a Chrome bookmarks folder called "EdgeAI Test" with:
-   - 2–3 real public URLs (e.g., `https://github.com`, `https://en.wikipedia.org/wiki/AI`)
-   - 1 local URL: `http://localhost:3000` (should be blocked)
-   - 1 internal: `http://192.168.1.1` (should be blocked)
+EdgeAI imports each bookmark's title and URL. It fetches no pages.
 
-2. Click **Import → Bookmarks**
-3. **Expected:**
-   - Public URLs fetched and indexed (progress increments for each)
-   - `localhost` and `192.168.1.1` silently skipped (no error, just not indexed)
-   - Documents tab shows only the public bookmark content
+1. Create a Chrome bookmarks folder called "EdgeAI Test" with 2–3 bookmarks, one of them twice (same URL, two folders)
+2. Click **Import → Chrome Bookmarks**
+3. **Expected:** Chrome asks to let EdgeAI "Read and change your bookmarks". This is the first time EdgeAI asks; it isn't requested at install.
+4. Click **Allow**
+5. **Expected:** "✓ N bookmarks", where the duplicated URL counts once. The Documents tab shows one document per URL, source "bookmark". If the prompt closed the popup instead, a notification says "Imported N bookmarks."
+6. Click **Import → Chrome Bookmarks** again
+7. **Expected:** "✓ Already imported", and no new documents. With a long bookmark list (hundreds), click again as soon as the button is back, while the first import is still indexing: still "✓ Already imported", and once indexing ends the Documents tab holds each URL once
+8. Remove the permission (chrome://extensions → EdgeAI → Details → Permissions, or `chrome.permissions.remove({ permissions: ['bookmarks'] })` from the popup's DevTools), click Import again and choose **Deny**
+9. **Expected:** "EdgeAI needs your OK to read bookmarks before it can import them." and nothing imported
 
-**IPv6 test (security regression):**
-4. Add bookmark: `http://[::1]/admin` — should be blocked by SSRF protection
-5. Verify it is not fetched (not in Documents tab after import)
+**Trust check:** the Trust Panel's network log shows no new entries after an import.
 
 ---
 
 ## 10. Index This Tab
 
+EdgeAI has no content script. It can read a tab only after you invoke it there: the toolbar icon, the shortcut (Cmd/Ctrl+Shift+E) or the right-click menu.
+
 1. Navigate to any public web page with substantial text content (e.g., a Wikipedia article)
-2. Open EdgeAI popup
-3. Click **"Index this tab"** button
-4. **Expected:** Toast shows "Extracting page content…" then "Indexing…" then "Indexed! N chunks"
+2. Click the EdgeAI toolbar icon
+3. Click **"Index this tab"**
+4. **Expected:** Toasts "Reading page…" → "Indexing "<title>"…" → "Indexed! N chunks from "<title>""
 5. Switch to Documents tab → the page appears with correct title and source "web_page"
 6. Ask a question about content on that page
 7. **Expected:** LLM answer references the indexed page content
+8. Click **"Index this tab"** again → **Expected:** "Re-indexing "<title>" with latest content…", and still one copy in the Documents tab
+
+**Other ways in:**
+9. On another page, press Cmd/Ctrl+Shift+E, then **Index this tab** → same as step 4
+10. On another page, right-click → **Index this page with EdgeAI** → **Expected:** a notification "Indexing "<title>"…", and the page in the Documents tab
+11. Tabs that were open before EdgeAI was installed work the same way (there's no content script to be missing)
 
 **Edge cases:**
-8. Navigate to `chrome://extensions` → click "Index this tab" → **Expected:** "Cannot index browser internal pages"
-9. Navigate to a page that hasn't loaded → click "Index this tab" → **Expected:** "Failed — make sure the page has loaded completely"
+12. `chrome://extensions` → Index this tab → **Expected:** "Chrome doesn't let extensions read its own pages or the Web Store."
+13. The onboarding tab (EdgeAI's own page) → Index Current Tab → **Expected:** "Go to the page you want to index, click the EdgeAI icon in the toolbar, then Index this tab."
+14. A PDF open in Chrome's viewer → **Expected:** "This is a PDF. Save it, then use Import → PDF Files."
+15. A `file://` page with "Allow access to file URLs" off → **Expected:** "To read local files, turn on "Allow access to file URLs" for EdgeAI in chrome://extensions."
+16. Open the side panel (the hide button), switch to a different tab, click **Index this tab** in the side panel → **Expected:** "EdgeAI can only read a page you open it on. Click the EdgeAI icon in the toolbar on this page, then try again." A click inside the side panel grants no access.
+17. A page that fails to load (Chrome's error page) → **Expected:** "Couldn't read this page. Wait for it to finish loading and try again."
 
 **Concurrent indexing:**
-10. Start an Obsidian import, then immediately click "Index this tab"
-11. **Expected:** Both operations complete independently. The "Index this tab" toast shows the correct page title (not an Obsidian file).
+18. Start an Obsidian import, then immediately click "Index this tab"
+19. **Expected:** Both operations complete independently. The "Index this tab" toast shows the correct page title (not an Obsidian file).
 
 ---
 
@@ -314,6 +325,21 @@ After importing the vault from §6:
 
 3. After importing documents, verify storage estimate increases
 
+**Network log (fresh install):**
+4. Install on a fresh profile and open the Privacy tab while the models download
+5. **Expected:** "Network requests" counts up as files finish (a file in progress appears once it completes). "Requests other than model downloads" reads **None**.
+6. Untick **Hide model downloads** → **Expected:** every entry is a huggingface.co (or hf.co mirror) URL with a model badge. Hover one: status, how it was requested and which EdgeAI page asked.
+7. Click **Check it yourself** → the privacy policy opens at "Check the Network Log Yourself". Follow it: chrome://extensions → Developer mode → EdgeAI → Inspect views → offscreen.html → Network. Reload the offscreen document's DevTools (Cmd/Ctrl+R) and compare with the log.
+8. Chat, index a tab, import bookmarks → **Expected:** no new entries
+9. Restart Chrome → **Expected:** the log is still there; the models load from cache with no new downloads
+10. Turn off Wi-Fi and restart Chrome → **Expected:** everything still works. Any failed request shows as "failed" in the log with the tooltip "no response (failed or blocked)".
+11. **Clear** → the list empties and the counts reset
+
+**Audit log:**
+12. Ask a question in Chat, index a tab and delete a document, then open the Privacy tab → **Expected:** the audit log lists all three, newest first: "chat query" with your question (click the row for the start of the reply and the passages it used), "document index" and "document delete", each with the document's title.
+13. Restart Chrome → **Expected:** the entries are still there
+14. **Clear** under the audit log → "No activity recorded yet." **Clear All Data** in Settings empties it too.
+
 ---
 
 ## 17. Multi-Session Persistence
@@ -339,7 +365,7 @@ This is the full restart test:
 | No progress for LLM token count / cost | Observability | Phase 2 |
 | YAML list-style tags (`- tag1`) not parsed in Obsidian | Minor metadata loss | Phase 2 |
 | No Notion/Google Drive connector | Feature gap | Phase 2 (Milestone 9) |
-| Trust Panel — live network monitor | Enterprise feature | Phase 1 (Milestone 6) |
+| Network log misses a download Chrome cancels partway (e.g. disk nearly full) | The log shows no entry for it | Chrome limit |
 | MCP server for external AI tool integration | Platform feature | Phase 1 (Milestone 7) |
 | Chunker tail sentences (~3) can't trigger semantic split | Minor quality gap | Low priority |
 

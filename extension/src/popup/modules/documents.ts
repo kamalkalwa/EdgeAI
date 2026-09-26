@@ -6,7 +6,7 @@ import type { Message, DocumentMetadata } from '@/lib/types';
 import { formatBytes } from '@/lib/utils';
 import { state } from './state';
 import {
-  $, sourceIcon,
+  $, showToast, sourceIcon,
   btnImportObsidian, btnImportPdf, btnImportBookmarks, pdfFileInput,
   previewModal, previewModalTitle, previewModalMeta, previewModalBody,
   previewModalClose, previewModalDelete, previewSourceIcon, previewFooterNote,
@@ -296,27 +296,35 @@ export function initDocumentListeners(): void {
   btnImportBookmarks.addEventListener('click', async () => {
     if (checkModelsReady(btnImportBookmarks)) return;
 
-    const progressEl = $('bookmarks-progress');
-    btnImportBookmarks.disabled = true;
-    btnImportBookmarks.querySelector('.label')!.textContent = 'Importing bookmarks…';
-    setImportProgress(progressEl, true, true);
-
-    const { indexBookmarkMetadataOnly } = await import('@/lib/connectors/bookmarks');
-    let count = 0;
-
-    try {
-      for await (const doc of indexBookmarkMetadataOnly()) {
-        await chrome.runtime.sendMessage({ type: 'INDEX_DOCUMENT', payload: doc });
-        count++;
-      }
-    } catch (err) {
-      console.error(err);
+    // Asked for here, not at install: most people never import bookmarks.
+    // Chrome may close the toolbar popup while it shows the prompt; the
+    // service worker starts the import when the grant lands either way.
+    const granted = await chrome.permissions.request({ permissions: ['bookmarks'] }).catch(() => false);
+    if (!granted) {
+      showToast('EdgeAI needs your OK to read bookmarks before it can import them.', 5000);
+      return;
     }
 
+    const progressEl = $('bookmarks-progress');
+    const label = btnImportBookmarks.querySelector('.label')!;
+    btnImportBookmarks.disabled = true;
+    label.textContent = 'Importing bookmarks…';
+    setImportProgress(progressEl, true, true);
+
+    const res = await chrome.runtime.sendMessage({ type: 'IMPORT_BOOKMARKS' })
+      .catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }));
+
     setImportProgress(progressEl, false);
-    btnImportBookmarks.querySelector('.label')!.textContent = `✓ ${count} bookmarks`;
+    if (res?.error || typeof res?.added !== 'number') {
+      console.error('[Bookmarks] Import failed:', res?.error);
+      label.textContent = 'Import failed';
+    } else {
+      label.textContent = res.added > 0
+        ? `✓ ${res.added} bookmark${res.added === 1 ? '' : 's'}`
+        : '✓ Already imported';
+    }
     setTimeout(() => {
-      btnImportBookmarks.querySelector('.label')!.textContent = 'Chrome Bookmarks';
+      label.textContent = 'Chrome Bookmarks';
       btnImportBookmarks.disabled = false;
     }, 3000);
   });

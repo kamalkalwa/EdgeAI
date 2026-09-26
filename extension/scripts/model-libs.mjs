@@ -17,8 +17,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MODEL_IDS = ['Phi-4-mini-instruct-q4f16_1-MLC', 'Llama-3.2-1B-Instruct-q4f16_1-MLC'];
-export const OUT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public/mlc');
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+// The same list the extension loads from (default model first, then the fallback).
+const LLM_MODELS = JSON.parse(fs.readFileSync(path.resolve(HERE, '../src/lib/models/llm-models.json'), 'utf8'));
+export const MODEL_IDS = [LLM_MODELS.default.id, LLM_MODELS.fallback.id];
+export const OUT_DIR = path.resolve(HERE, '../public/mlc');
 export const INDEX_FILE = 'libs.json';
 
 export function resolveModelLibs() {

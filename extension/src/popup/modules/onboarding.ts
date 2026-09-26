@@ -6,6 +6,7 @@ import { state } from './state';
 import { $, showToast, chatMessages, chatInput, pdfFileInput } from './dom';
 import { sendChat } from './chat';
 import { showWelcomeMessage } from './sessions';
+import { readTab, ReadTabError } from '@/lib/page/read-tab';
 
 let onboardingImportedTitle = '';
 
@@ -112,21 +113,16 @@ export function showOnboarding(): void {
       return;
     }
     const btn = $('onboarding-index-tab') as HTMLButtonElement;
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+    if (activeTab?.id === undefined) {
+      showToast('No active tab found');
+      return;
+    }
+    btn.textContent = 'Indexing…';
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!activeTab?.id || !activeTab.url ||
-          activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('chrome-extension://')) {
-        showToast('Cannot index this page');
-        return;
-      }
-      btn.textContent = 'Indexing…';
-      const response = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_PAGE_CONTENT_FOR_INDEX' });
-      if (!response?.payload?.content) {
-        showToast('Could not extract content');
-        btn.textContent = '🌐  Index Current Tab';
-        return;
-      }
-      const { url, title, content } = response.payload;
+      // On the first-run tab the active tab is this page itself: readTab says
+      // to open EdgeAI from the toolbar on the page to index instead.
+      const { url, title, content } = await readTab({ id: activeTab.id, url: activeTab.url });
       await chrome.runtime.sendMessage({
         type: 'INDEX_DOCUMENT',
         payload: {
@@ -142,9 +138,9 @@ export function showOnboarding(): void {
       });
       btn.textContent = `✓ "${title}" indexed`;
       advanceToStep3(title || 'this page');
-    } catch {
+    } catch (err) {
       btn.textContent = '🌐  Index Current Tab';
-      showToast('Failed to index tab');
+      showToast(err instanceof ReadTabError ? err.message : 'Failed to index tab', 6000);
     }
   });
 

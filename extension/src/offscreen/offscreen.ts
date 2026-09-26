@@ -26,8 +26,19 @@ import { SileroVAD } from '@/lib/voice/vad';
 import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
 import { nanoid } from '@/lib/utils';
-import { appendAuditEntry } from '@/lib/trust/audit-log';
+import type { AuditEntry } from '@/lib/trust/audit-log';
+import { reportNetworkRequests } from '@/lib/trust/request-reporter';
 import { USER_DATABASES } from '@/lib/storage/db-names';
+import { DEFAULT_LLM, FALLBACK_LLM } from '@/lib/models/llm-catalog';
+import { BookmarkImporter, type BookmarkInfo } from '@/lib/connectors/bookmarks';
+
+// Every model download this document makes goes into the Trust Panel's log.
+reportNetworkRequests('offscreen');
+
+/** Adds an entry to the Trust Panel's audit log, which the service worker keeps: this document has no chrome.storage. */
+function reportAudit(entry: AuditEntry): void {
+  chrome.runtime.sendMessage({ type: 'AUDIT_ENTRY', payload: entry }).catch(() => {});
+}
 
 // ─── ONNX Runtime Configuration for Chrome Extension CSP ────────────────────
 //
@@ -81,8 +92,8 @@ async function withRetry<T>(
 
 // ─── Model Configuration ─────────────────────────────────────────────────────
 
-const LLM_MODEL_ID = 'Phi-4-mini-instruct-q4f16_1-MLC';
-const LLM_FALLBACK_ID = 'Llama-3.2-1B-Instruct-q4f16_1-MLC';
+const LLM_MODEL_ID = DEFAULT_LLM.id;
+const LLM_FALLBACK_ID = FALLBACK_LLM.id;
 
 // ─── Bundled Model Library ───────────────────────────────────────────────────
 //
@@ -230,6 +241,7 @@ async function initialize(): Promise<void> {
             type: 'MODEL_PROGRESS',
             payload: {
               model: 'llm',
+              modelId, // lets the popup name the model and its download size
               progress: Math.round(progress.progress * 100),
               text: progress.text,
             },
@@ -308,7 +320,7 @@ async function selectModelForHardware(): Promise<string> {
 }
 
 function broadcastStatus(message: Message): void {
-  // Send to all extension contexts (popup, content scripts)
+  // Send to all extension contexts (popup, side panel)
   chrome.runtime.sendMessage(message).catch(() => {
     // Popup may not be open — that's fine
   });
@@ -323,10 +335,8 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
 
   const { messages, systemPrompt, useRag = true } = request;
 
-  let augmentedSystem = systemPrompt ?? buildSystemPrompt();
-
   // RAG: retrieve relevant context for the last user message.
-  let ragChunkCount = 0;
+  let excerpts = '';
   let auditChunks: Array<{ documentTitle: string; source: string; score: number }> = [];
   if (useRag && vectorStore && embeddingModel && rerankerModel) {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
@@ -339,16 +349,13 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
           embeddingModel,
           rerankerModel
         );
-        ragChunkCount = context.chunks.length;
         auditChunks = context.chunks.map((c) => ({
           documentTitle: c.chunk.metadata.documentTitle,
           source: c.chunk.metadata.source,
           score: c.score,
         }));
-        console.log(`[EdgeAI] RAG: found ${ragChunkCount} relevant chunks`);
-        if (ragChunkCount > 0) {
-          augmentedSystem += '\n\n' + context.systemPromptAddition;
-        }
+        console.log(`[EdgeAI] RAG: found ${context.chunks.length} relevant chunks`);
+        excerpts = context.systemPromptAddition; // '' when nothing matched
       } catch (ragErr) {
         console.error('[EdgeAI] RAG failed:', ragErr);
         // Notify user that context retrieval failed so they know why the answer lacks context
@@ -366,8 +373,13 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
     });
   }
 
+  // The prompt says whether excerpts came with this message (see buildSystemPrompt).
+  const system = systemPrompt === undefined
+    ? buildSystemPrompt(excerpts)
+    : [systemPrompt, excerpts].filter(Boolean).join('\n\n');
+
   const fullMessages: webllm.ChatCompletionMessageParam[] = [
-    { role: 'system', content: augmentedSystem },
+    { role: 'system', content: system },
     ...messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
   ];
 
@@ -399,14 +411,14 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
 
   // Audit log entry
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
-  appendAuditEntry({
+  reportAudit({
     id: requestId,
     timestamp: Date.now(),
     type: 'chat_query',
     query: lastUserMsg?.content,
     retrievedChunks: auditChunks.length > 0 ? auditChunks : undefined,
     responsePreview: fullResponse.slice(0, 200),
-  }).catch(console.error);
+  });
 }
 
 // ─── Document Indexing Handler ────────────────────────────────────────────────
@@ -489,12 +501,61 @@ async function handleIndexDocument(
     },
   });
 
-  appendAuditEntry({
+  reportAudit({
     id: nanoid(),
     timestamp: Date.now(),
     type: 'document_index',
     documentTitle: request.metadata.title,
-  }).catch(console.error);
+  });
+}
+
+/** Queues a document on indexQueue. Settles once it is stored, or has failed and said so. */
+function enqueueIndex(request: IndexDocumentRequest, requestId: string): Promise<void> {
+  indexQueue = indexQueue.then(() =>
+    handleIndexDocument(request, requestId)
+      .catch((err) =>
+        broadcastStatus({
+          type: 'INDEX_ERROR',
+          payload: { error: err.message, requestId },
+        })
+      )
+  );
+  return indexQueue;
+}
+
+async function handleDeleteDocument(documentId: string): Promise<void> {
+  // Looked up first, so the audit log can say what was deleted.
+  const doc = await documentStore?.getDocument(documentId);
+  await Promise.all([
+    vectorStore?.deleteByDocumentId(documentId),
+    documentStore?.deleteDocument(documentId),
+  ]);
+  reportAudit({
+    id: nanoid(),
+    timestamp: Date.now(),
+    type: 'document_delete',
+    documentTitle: doc?.title ?? documentId,
+  });
+}
+
+// ─── Bookmark Import ──────────────────────────────────────────────────────────
+// The service worker reads the bookmarks (only it can) and sends them here:
+// picking the ones not imported yet takes the queue as well as the store.
+
+const bookmarkImporter = new BookmarkImporter(
+  (doc) => enqueueIndex(doc, nanoid()),
+  async () => {
+    if (!documentStore) throw new Error('Storage not initialized');
+    const docs = await documentStore.listDocuments();
+    return docs.filter((d) => d.source === 'bookmark' && d.sourcePath).map((d) => d.sourcePath as string);
+  },
+);
+
+async function importBookmarks(bookmarks: BookmarkInfo[]): Promise<number> {
+  // Waits for a load or a Clear All Data in progress, so nothing is queued
+  // that can't be indexed and nothing is compared against a store being wiped.
+  await initStoresAndEmbeddings();
+  return bookmarkImporter.import(bookmarks);
 }
 
 // ─── Search Handler ───────────────────────────────────────────────────────────
@@ -512,7 +573,7 @@ async function handleSearch(request: SearchRequest): Promise<unknown> {
     { topK: request.topK ?? 5, filters: request.filters }
   );
 
-  appendAuditEntry({
+  reportAudit({
     id: nanoid(),
     timestamp: Date.now(),
     type: 'search',
@@ -522,7 +583,7 @@ async function handleSearch(request: SearchRequest): Promise<unknown> {
       source: c.chunk.metadata.source,
       score: c.score,
     })),
-  }).catch(console.error);
+  });
 
   return context.chunks;
 }
@@ -728,17 +789,17 @@ chrome.runtime.onMessage.addListener(
         if (!payload) { sendResponse({ type: 'INDEX_ERROR', payload: { error: 'No payload' } }); return false; }
         // Chain onto the sequential queue — bulk imports (e.g. 300-note vault) otherwise
         // flood the ONNX/WebGPU worker with parallel embedding sessions and OOM.
-        indexQueue = indexQueue.then(() =>
-          handleIndexDocument(payload as IndexDocumentRequest, requestId ?? nanoid())
-            .catch((err) =>
-              broadcastStatus({
-                type: 'INDEX_ERROR',
-                payload: { error: err.message, requestId },
-              })
-            )
-        );
+        enqueueIndex(payload as IndexDocumentRequest, requestId ?? nanoid());
         sendResponse({ acknowledged: true });
         return false;
+
+      case 'IMPORT_BOOKMARKS':
+        if (!Array.isArray(payload)) { sendResponse({ error: 'No bookmarks' }); return false; }
+        // Answers once the new bookmarks are queued; they are indexed one at a time after.
+        importBookmarks(payload as BookmarkInfo[])
+          .then((added) => sendResponse({ added }))
+          .catch((err) => sendResponse({ error: err instanceof Error ? err.message : String(err) }));
+        return true;
 
       case 'SEARCH':
         if (!payload) { sendResponse({ type: 'SEARCH_RESULTS', payload: [] }); return false; }
@@ -794,25 +855,13 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case 'DELETE_DOCUMENT': {
-        if (!payload || typeof (payload as { documentId?: string }).documentId !== 'string') {
+        const documentId = (payload as { documentId?: unknown } | undefined)?.documentId;
+        if (typeof documentId !== 'string') {
           sendResponse({ error: 'No documentId' });
           return false;
         }
-        const deleteDocId = (payload as { documentId: string; title?: string }).documentId;
-        const deleteTitle = (payload as { documentId: string; title?: string }).title;
-        Promise.all([
-          vectorStore?.deleteByDocumentId(deleteDocId),
-          documentStore?.deleteDocument(deleteDocId),
-        ])
-          .then(() => {
-            appendAuditEntry({
-              id: nanoid(),
-              timestamp: Date.now(),
-              type: 'document_delete',
-              documentTitle: deleteTitle ?? deleteDocId,
-            }).catch(console.error);
-            sendResponse({ success: true });
-          })
+        handleDeleteDocument(documentId)
+          .then(() => sendResponse({ success: true }))
           .catch((err) => sendResponse({ error: err.message }));
         return true;
       }
