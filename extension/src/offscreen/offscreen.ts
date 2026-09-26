@@ -335,10 +335,8 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
 
   const { messages, systemPrompt, useRag = true } = request;
 
-  let augmentedSystem = systemPrompt ?? buildSystemPrompt();
-
   // RAG: retrieve relevant context for the last user message.
-  let ragChunkCount = 0;
+  let excerpts = '';
   let auditChunks: Array<{ documentTitle: string; source: string; score: number }> = [];
   if (useRag && vectorStore && embeddingModel && rerankerModel) {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
@@ -351,16 +349,13 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
           embeddingModel,
           rerankerModel
         );
-        ragChunkCount = context.chunks.length;
         auditChunks = context.chunks.map((c) => ({
           documentTitle: c.chunk.metadata.documentTitle,
           source: c.chunk.metadata.source,
           score: c.score,
         }));
-        console.log(`[EdgeAI] RAG: found ${ragChunkCount} relevant chunks`);
-        if (ragChunkCount > 0) {
-          augmentedSystem += '\n\n' + context.systemPromptAddition;
-        }
+        console.log(`[EdgeAI] RAG: found ${context.chunks.length} relevant chunks`);
+        excerpts = context.systemPromptAddition; // '' when nothing matched
       } catch (ragErr) {
         console.error('[EdgeAI] RAG failed:', ragErr);
         // Notify user that context retrieval failed so they know why the answer lacks context
@@ -378,8 +373,13 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
     });
   }
 
+  // The prompt says whether excerpts came with this message (see buildSystemPrompt).
+  const system = systemPrompt === undefined
+    ? buildSystemPrompt(excerpts)
+    : [systemPrompt, excerpts].filter(Boolean).join('\n\n');
+
   const fullMessages: webllm.ChatCompletionMessageParam[] = [
-    { role: 'system', content: augmentedSystem },
+    { role: 'system', content: system },
     ...messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
   ];
 

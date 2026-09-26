@@ -20,7 +20,7 @@ This guide walks through the full sanity check for all implemented features
 cd EdgeAI/extension
 npm run type-check       # expect: 0 errors
 npm run build            # expect: dist/ folder populated with manifest + chunks
-npm test                 # expect: 137 passed, 0 failed, ~500ms
+npm test                 # expect: 139 passed, 0 failed, ~500ms
 ```
 
 **Pass criteria:** No red output from any of the three commands.
@@ -79,7 +79,7 @@ npm test                 # expect: 137 passed, 0 failed, ~500ms
 
 1. Type: `What is the capital of France?`
 2. Press Enter or click Send
-3. **Expected:** Streaming response arrives token-by-token, answers "Paris"
+3. **Expected:** Streaming response arrives token-by-token, answers "Paris", and doesn't mention documents, notes or sources (nothing is imported yet)
 4. Type a follow-up: `And what's its population?`
 5. **Expected:** LLM uses conversation history, answers coherently without re-stating the question
 
