@@ -321,7 +321,7 @@ export function initDocumentListeners(): void {
     } else {
       label.textContent = res.added > 0
         ? `✓ ${res.added} bookmark${res.added === 1 ? '' : 's'}`
-        : '✓ Already imported';
+        : '✓ No new bookmarks';
     }
     setTimeout(() => {
       label.textContent = 'Chrome Bookmarks';

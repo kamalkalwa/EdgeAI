@@ -173,7 +173,7 @@ EdgeAI imports each bookmark's title and URL. It fetches no pages.
 4. Click **Allow**
 5. **Expected:** "✓ N bookmarks", where the duplicated URL counts once. The Documents tab shows one document per URL, source "bookmark". If the prompt closed the popup instead, a notification says "Imported N bookmarks."
 6. Click **Import → Chrome Bookmarks** again
-7. **Expected:** "✓ Already imported", and no new documents. With a long bookmark list (hundreds), click again as soon as the button is back, while the first import is still indexing: still "✓ Already imported", and once indexing ends the Documents tab holds each URL once
+7. **Expected:** "✓ No new bookmarks", and no new documents. With a long bookmark list (hundreds), click again as soon as the button is back, while the first import is still indexing: still "✓ No new bookmarks", and once indexing ends the Documents tab holds each URL once
 8. Remove the permission (chrome://extensions → EdgeAI → Details → Permissions, or `chrome.permissions.remove({ permissions: ['bookmarks'] })` from the popup's DevTools), click Import again and choose **Deny**
 9. **Expected:** "EdgeAI needs your OK to read bookmarks before it can import them." and nothing imported
 

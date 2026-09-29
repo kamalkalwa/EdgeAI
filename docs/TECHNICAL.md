@@ -1125,7 +1125,7 @@ Imports each bookmark's title and URL as a small document. No page is fetched, s
 1. Import → Chrome Bookmarks calls `chrome.permissions.request({ permissions: ['bookmarks'] })` the first time. A refusal shows a toast and stops.
 2. The popup sends `IMPORT_BOOKMARKS`. The service worker reads the bookmark tree (the offscreen document can't) and sends the list on to the offscreen document, which answers `{ added }` or `{ error }` once the new bookmarks are queued.
 3. The offscreen document waits for its stores and embeddings (`initStoresAndEmbeddings()`), then `BookmarkImporter` picks the new bookmarks: `newBookmarkDocuments()` skips any URL already imported (and repeats within the tree). Each new bookmark becomes a document with content `title\nurl`, indexed one at a time on `indexQueue`.
-4. The button shows "✓ N bookmarks" or "✓ Already imported".
+4. The button shows "✓ N bookmarks", or "✓ No new bookmarks" when every bookmark is already imported.
 
 **Each URL is imported once, even while an earlier import is still indexing.** A long bookmark list takes minutes to index, and the Import button is ready again after three seconds. `BookmarkImporter` counts a URL as imported from the moment it is queued, not only once it is stored, and one import picks at a time. It reads the queued URLs before the stored ones: a URL leaves the queue only after its document is stored, so it can't fall between the two reads. A URL whose indexing failed leaves the queue without being stored, so the next import tries it again.
 
