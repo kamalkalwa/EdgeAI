@@ -8,7 +8,7 @@ A Chrome extension that runs a 3.8B language model, an embedding model, a cross-
 
 - Chat with Phi-4-mini (3.8B, 4-bit, 4K context) over WebGPU. Machines without roughly 3.4 GB of GPU memory get Llama-3.2-1B instead.
 - Index an Obsidian vault (File System Access API; the folder handle is remembered), PDFs, text and Markdown files, the page you're on (the "Index this tab" button, or right-click → "Index this page with EdgeAI"), and Chrome bookmarks (titles and URLs only).
-- Retrieval per question: BM25 top 20 from Orama and cosine top 20 over bge-small embeddings, fused with reciprocal rank fusion, reranked with ms-marco-MiniLM-L-6, and the top 5 go into the prompt tagged `[SOURCE: title, date]`.
+- Retrieval per question: BM25 top 20 from Orama and cosine top 20 over bge-small embeddings, fused with reciprocal rank fusion and reranked with ms-marco-MiniLM-L-6. Up to 5 passages the reranker scores as related go into the prompt, tagged `[SOURCE: title, date]`. If none are, the language model is asked whether the message is about your documents at all ("Summarize my notes" scores as low as an unrelated passage), and if it is, the top 5 go in anyway.
 - Voice: tap the mic, Moonshine-tiny transcribes on-device, Silero VAD decides when you've stopped talking, and replies can be read back with the browser's speech synthesis.
 - Trust Panel: the git commit the build came from, an inventory of everything stored and its size, every network request the extension has made, and an audit log of every retrieval.
 - Stealth mode: the same UI in Chrome's side panel, which tab-sharing captures don't include.
@@ -60,7 +60,7 @@ Full policy: https://kamalkalwa.github.io/EdgeAI/privacy.html. No server, no acc
 ```
 npm run dev          # vite build --watch; reload in chrome://extensions
 npm run type-check
-npm test             # 139 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, page reader, VAD, Trust Panel logs
+npm test             # 145 unit tests: chunker, RRF, retrieval, stores (fake-indexeddb), connectors, page reader, VAD, Trust Panel logs
 npm run build:store  # production build + zip; commit first, the Trust Panel shows the build's git hash
 ```
 

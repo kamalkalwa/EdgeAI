@@ -11,9 +11,13 @@
 
 import {
   pipeline,
+  AutoTokenizer,
+  AutoModelForSequenceClassification,
   FeatureExtractionPipeline,
-  TextClassificationPipeline,
   env,
+  type PreTrainedModel,
+  type PreTrainedTokenizer,
+  type Tensor,
 } from '@huggingface/transformers';
 
 // Configure transformers.js to use local cache (Chrome Cache API via service worker)
@@ -91,50 +95,50 @@ export class EmbeddingModel {
   }
 }
 
+/**
+ * The cross-encoder is called directly rather than through the
+ * text-classification pipeline: the pipeline applies softmax over the model's
+ * outputs, and this model has one output, so every passage scored 1 and
+ * reranking changed nothing.
+ */
 export class RerankerModel {
-  private pipe: TextClassificationPipeline | null = null;
+  private tokenizer: PreTrainedTokenizer | null = null;
+  private model: PreTrainedModel | null = null;
   private readonly modelId = 'Xenova/ms-marco-MiniLM-L-6-v2';
 
   async load(onProgress?: (progress: number) => void): Promise<void> {
-    if (this.pipe) return;
+    if (this.model) return;
 
-    this.pipe = (await callPipeline('text-classification', this.modelId, {
-      progress_callback: onProgress
-        ? (info: Record<string, unknown>) => {
-            if (typeof info['progress'] === 'number') onProgress(Math.round(info['progress']));
-          }
-        : undefined,
-      dtype: 'int8',
-      device: 'wasm', // reranker is small enough — WASM is fine and avoids GPU contention
-    })) as TextClassificationPipeline;
+    const progress_callback = onProgress
+      ? (info: Record<string, unknown>) => {
+          if (typeof info['progress'] === 'number') onProgress(Math.round(info['progress']));
+        }
+      : undefined;
+    [this.tokenizer, this.model] = await Promise.all([
+      AutoTokenizer.from_pretrained(this.modelId, { progress_callback }),
+      AutoModelForSequenceClassification.from_pretrained(this.modelId, {
+        progress_callback,
+        dtype: 'int8',
+        device: 'wasm', // reranker is small enough — WASM is fine and avoids GPU contention
+      }),
+    ]);
   }
 
   /**
-   * Returns relevance scores for each passage given the query.
-   * Higher = more relevant. Scores are raw logits (not normalized).
+   * How relevant each passage is to the query: the model's raw logit, higher
+   * is more relevant, above 0 means the model leans towards relevant.
    */
   async rerank(query: string, passages: string[]): Promise<number[]> {
-    if (!this.pipe) throw new Error('Reranker model not loaded');
+    if (!this.tokenizer || !this.model) throw new Error('Reranker model not loaded');
     if (passages.length === 0) return [];
 
-    // ms-marco cross-encoder takes [query, passage] pairs
-    const pairs = passages.map((passage) => `${query} [SEP] ${passage}`);
-
-    // top_k: null returns all labels — cast to bypass TS strict number | undefined constraint
-    type PipeCall = (inputs: string[], opts?: Record<string, unknown>) => Promise<unknown>;
-    const outputs = await (this.pipe as unknown as PipeCall)(pairs, { top_k: null });
-
-    // Extract score for the "relevant" class (label_1 or the higher-scoring label)
-    const scores = (Array.isArray(outputs) ? outputs : [outputs]).map((result) => {
-      const resultArr = Array.isArray(result) ? result : [result];
-      // Find score for positive relevance label
-      const positive = resultArr.find(
-        (r: { label: string; score: number }) =>
-          r.label === 'LABEL_1' || r.label === '1' || r.score > 0.5
-      );
-      return positive?.score ?? (resultArr[0]?.score ?? 0);
+    // One (query, passage) pair per passage, encoded as a sentence pair.
+    const inputs = this.tokenizer(passages.map(() => query), {
+      text_pair: passages,
+      padding: true,
+      truncation: true,
     });
-
-    return scores;
+    const { logits } = await this.model(inputs) as { logits: Tensor };
+    return Array.from(logits.data as Float32Array);
   }
 }

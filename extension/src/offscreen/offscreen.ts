@@ -23,7 +23,7 @@ import { DocumentStore } from '@/lib/storage/document-store';
 import { EmbeddingModel, RerankerModel } from '@/lib/models/embedding';
 import { MoonshineASR, VoiceSession } from '@/lib/voice/asr';
 import { SileroVAD } from '@/lib/voice/vad';
-import { buildSystemPrompt, buildRagContext } from '@/lib/retrieval/retrieval';
+import { buildSystemPrompt, buildRagContext, libraryQuestion } from '@/lib/retrieval/retrieval';
 import { semanticChunk } from '@/lib/retrieval/chunker';
 import { nanoid } from '@/lib/utils';
 import type { AuditEntry } from '@/lib/trust/audit-log';
@@ -328,6 +328,19 @@ function broadcastStatus(message: Message): void {
 
 // ─── Chat Handler ─────────────────────────────────────────────────────────────
 
+/** Whether a message asks about the user's own documents, as the LLM reads it. */
+async function asksAboutLibrary(message: string): Promise<boolean> {
+  if (!llmEngine) return false;
+  const reply = await llmEngine.chat.completions.create({
+    messages: [{ role: 'user', content: libraryQuestion(message) }],
+    temperature: 0,
+    max_tokens: 2,
+  });
+  const answer = reply.choices[0]?.message?.content ?? '';
+  console.log('[EdgeAI] RAG: no passage cleared MIN_RELEVANCE; about the library?', JSON.stringify(answer));
+  return /^\W*yes/i.test(answer);
+}
+
 async function handleChat(request: ChatRequest, requestId: string): Promise<void> {
   if (!llmEngine) {
     throw new Error('LLM not loaded yet');
@@ -347,7 +360,8 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
           lastUserMsg.content,
           vectorStore,
           embeddingModel,
-          rerankerModel
+          rerankerModel,
+          { asksAboutLibrary: () => asksAboutLibrary(lastUserMsg.content) }
         );
         auditChunks = context.chunks.map((c) => ({
           documentTitle: c.chunk.metadata.documentTitle,
