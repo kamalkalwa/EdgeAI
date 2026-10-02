@@ -18,7 +18,7 @@ Last updated: 2026-09-17
 
 ## Current State: Milestone 6 Complete — "Trust & Enterprise Readiness"
 
-The core engine is built and functional. Local LLM chat, RAG pipeline, document indexing, voice input (VAD-gated Moonshine ASR), TTS output, guided onboarding, settings panel, and "Index this tab" all work. The Trust Panel (Milestone 6) adds live network monitoring, audit log, data inventory, build verification, and a privacy policy page. **Next up: Chrome Web Store launch (Milestone 8) then MCP Server (Milestone 7).**
+The core engine is built and functional. Local LLM chat, RAG pipeline, document indexing, voice input (VAD-gated Moonshine ASR), TTS output, guided onboarding, settings panel, and "Index this tab" all work. The Trust Panel (Milestone 6) adds a network log, audit log, data inventory, build verification, and a privacy policy page. **Next up: Chrome Web Store launch (Milestone 8) then MCP Server (Milestone 7).**
 
 ---
 
@@ -37,7 +37,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | Semantic chunking (compromise.js + embedding similarity) | Done | ADR-004 implemented exactly |
 | Vector store (Orama + IndexedDB persistence) | Done | BM25 + brute-force cosine (MVP) |
 | Document metadata store (Dexie.js) | Done | Versioned schema |
-| Service worker keepalive (content script ping) | Done | 25s interval |
+| Service worker lifecycle | Done | No keepalive: the worker sleeps after 30s idle and nothing needs it awake. The content-script ping was removed in PR #6. |
 | ONNX Runtime CSP workaround (runtime file copy) | Done | Vite plugin; embeddings on WebGPU since transformers.js 4 (2026-09-18) |
 | Prompt injection mitigation (chunk sanitization) | Done | Strip injection patterns, hard cap 1200 chars |
 
@@ -47,7 +47,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 |---------|--------|-------|
 | Obsidian vault import (File System Access API) | Done | Recursive .md, frontmatter parsing, incremental re-index |
 | PDF import (pdf.js) | Done | Page-level extraction, 50MB limit |
-| Chrome bookmarks import | Done | Metadata-only + full-text modes, private address blocking |
+| Chrome bookmarks import | Done | Titles and URLs only, behind the optional `bookmarks` permission. Skips URLs already imported. The full-text mode (and its host permissions) was removed in PR #6. |
 | Backpressure indexing queue | Done | Sequential promise chain prevents OOM |
 | Import progress UI | Done | Progress bar, count, success animation |
 
@@ -80,7 +80,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| "Index this tab" button (content script) | Done | Content script extracts 10K chars (noise-stripped), chunked, embedded, stored. requestId correlation for concurrent indexing. |
+| "Index this tab" button | Done | On demand: `activeTab` + `scripting.executeScript` extracts 10K chars (noise-stripped), chunked, embedded, stored. No content script since PR #6. requestId correlation for concurrent indexing. |
 | Guided first-run onboarding | Done | On first launch: "Let's make this yours" → pick Obsidian / PDF / bookmarks → index → ask a question from your data. |
 | TTS voice output (Web Speech Synthesis API) | Done | Moved to Milestone 3 (voice). Markdown stripping, zero libraries. |
 | Settings panel | Done | TTS voice/speed, storage stats, document-list export, Clear All Data (IndexedDB + storage), Delete Downloaded Models. No model choice yet — see Technical Debt. |
@@ -92,7 +92,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | Phase 0 — Modularize popup.ts | Done | 1,654 → 335 lines. 9 ES modules: state, dom, chat, sessions, documents, voice, settings, onboarding, trust |
 | Trust Panel — open source verification | Done | Build-time commit hash + version via Vite define block |
 | Trust Panel — live data inventory | Done | Docs, chunks, storage quota, chat sessions, model cache files |
-| Trust Panel — live network monitor | Done | `webRequest` API captures all outbound requests. Category badges, filter toggle, "zero external requests" proof |
+| Trust Panel — network log | Done | Rebuilt in PR #6 on resource timing: each EdgeAI page reports its own requests to the service worker. The first version used `webRequest`, which never sees an extension's own requests, so it was always empty. Category badges, hide-model-downloads toggle, a DevTools check in the privacy policy |
 | Trust Panel — audit log | Done | Append-only log of every query, search, index, delete. Expandable entries, export JSON, 500-entry FIFO cap |
 | Privacy policy page | Done | Standalone HTML page. Permissions explained. Linked from Trust Panel |
 
@@ -107,7 +107,7 @@ The core engine is built and functional. Local LLM chat, RAG pipeline, document 
 | Privacy practices disclosure | Done | Full CWS privacy form answers, permission justifications. See [STORE-LISTING.md](STORE-LISTING.md) |
 | Duplicate detection (Index this tab) | Done | `CHECK_DOCUMENT_EXISTS` message — auto-replaces stale index. Also in context menu handler |
 | Store assets (screenshots, promo tile) | Done | 1280x800 composites (hero + trust), raw popup PNGs, 440x280 promo tile. Puppeteer capture script |
-| Demo GIF (network monitor showing zero outbound calls) | Done | 14s animated GIF: chat → AI response with RAG source → Trust Panel → zero requests proof → audit log. 209KB |
+| Demo GIF (chat → Trust Panel → audit log) | Needs re-capture | 14s animated GIF, 209KB. Shows the old network panel and its "zero requests" claim; re-record against the PR #6 log |
 | Landing page | Done | Single-page site: hero, features, comparison, enterprise, tech stack. See [landing/](../landing/) |
 
 ### Milestone 7: MCP Server (Planned — post-launch)

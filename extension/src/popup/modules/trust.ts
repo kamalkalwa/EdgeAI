@@ -3,13 +3,13 @@
  * Milestone 6 features: build info, enhanced inventory, network monitor, audit log.
  */
 
-import type { DocumentMetadata } from '@/lib/types';
+import type { DocumentMetadata, Message } from '@/lib/types';
 import { formatBytes } from '@/lib/utils';
 import type { NetworkEntry } from '@/lib/trust/network-monitor';
 import { formatEntryUrl } from '@/lib/trust/network-monitor';
-import { getAuditLog, clearAuditLog, exportAuditLog, type AuditEntry } from '@/lib/trust/audit-log';
+import { exportAuditLog, type AuditEntry } from '@/lib/trust/audit-log';
 import { $ } from './dom';
-import type { ChatSession } from './state';
+import { state, type ChatSession } from './state';
 
 export function populateBuildInfo(): void {
   const el = $('trust-build-info');
@@ -82,24 +82,23 @@ let networkLogCache: NetworkEntry[] = [];
 
 async function loadNetworkLog(): Promise<void> {
   const res = await chrome.runtime.sendMessage({ type: 'GET_NETWORK_LOG' }).catch(() => null);
-  const log = (res?.payload ?? []) as NetworkEntry[];
-  networkLogCache = log;
+  networkLogCache = (res?.payload ?? []) as NetworkEntry[];
+  renderNetworkSummary();
+  renderNetworkLog();
+}
 
-  // Summary stats
-  const total = log.length;
-  const external = log.filter((e) => e.category !== 'model_download' && e.category !== 'extension_internal');
+function renderNetworkSummary(): void {
+  const total = networkLogCache.length;
+  const other = networkLogCache.filter((e) => e.category !== 'model_download').length;
   $('trust-network-count').textContent = `${total} request${total === 1 ? '' : 's'}`;
 
-  const externalEl = $('trust-network-external');
-  if (external.length === 0) {
-    externalEl.textContent = 'Zero external requests';
-    externalEl.className = 'trust-value green';
-  } else {
-    externalEl.textContent = `${external.length} external request${external.length === 1 ? '' : 's'}`;
-    externalEl.className = 'trust-value yellow';
-  }
+  const otherEl = $('trust-network-external');
+  otherEl.textContent = other === 0 ? 'None' : `${other} request${other === 1 ? '' : 's'}`;
+  otherEl.className = `trust-value ${other === 0 ? 'green' : 'yellow'}`;
+}
 
-  renderNetworkLog();
+function describeStatus(code: number): string {
+  return code === 0 ? 'no response (failed or blocked)' : `HTTP ${code}`;
 }
 
 function renderNetworkLog(): void {
@@ -113,37 +112,55 @@ function renderNetworkLog(): void {
   if (filtered.length === 0) {
     listEl.innerHTML = `<div class="network-log-empty">${
       hideModels && networkLogCache.length > 0
-        ? 'All requests are model downloads. Zero external activity.'
+        ? 'Every request so far was a model download.'
         : 'No network requests recorded.'
     }</div>`;
     return;
   }
 
-  // Show most recent first, cap at 100 for rendering performance
-  const display = filtered.slice(-100).reverse();
+  // Most recent first (pages report as requests finish, so arrival order
+  // isn't start order), capped at 100 for rendering performance
+  const display = [...filtered].sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
   listEl.innerHTML = '';
 
   for (const entry of display) {
     const row = document.createElement('div');
     row.className = 'network-log-entry';
+    const d = new Date(entry.timestamp);
+    row.title = `${entry.url}\n${describeStatus(entry.statusCode)} · ${entry.initiatorType} from ${entry.context} · ${d.toLocaleString()}`;
 
     const time = document.createElement('span');
     time.className = 'nle-time';
-    const d = new Date(entry.timestamp);
     time.textContent = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 
+    // Host and path shrink first, so the file name stays readable
+    const { path, file } = formatEntryUrl(entry.url);
     const url = document.createElement('span');
     url.className = 'nle-url';
-    url.textContent = formatEntryUrl(entry.url);
-    url.title = entry.url;
-
-    const badge = document.createElement('span');
-    badge.className = `nle-badge ${entry.category}`;
-    badge.textContent = entry.category.replace('_', ' ');
+    const pathEl = document.createElement('span');
+    pathEl.className = 'nle-path';
+    pathEl.textContent = path;
+    const fileEl = document.createElement('span');
+    fileEl.className = 'nle-file';
+    fileEl.textContent = file;
+    url.append(pathEl, fileEl);
 
     row.appendChild(time);
     row.appendChild(url);
+
+    // Only the unusual outcomes get a status: failures and HTTP errors
+    if (entry.statusCode === 0 || entry.statusCode >= 400) {
+      const status = document.createElement('span');
+      status.className = 'nle-status';
+      status.textContent = entry.statusCode === 0 ? 'failed' : String(entry.statusCode);
+      row.appendChild(status);
+    }
+
+    const badge = document.createElement('span');
+    badge.className = `nle-badge ${entry.category}`;
+    badge.textContent = entry.category === 'model_download' ? 'model' : 'other';
     row.appendChild(badge);
+
     listEl.appendChild(row);
   }
 }
@@ -154,11 +171,19 @@ export function initNetworkLogListeners(): void {
   $('btn-clear-network-log').addEventListener('click', async () => {
     await chrome.runtime.sendMessage({ type: 'CLEAR_NETWORK_LOG' }).catch(() => null);
     networkLogCache = [];
-    $('trust-network-count').textContent = '0 requests';
-    const externalEl = $('trust-network-external');
-    externalEl.textContent = 'Zero external requests';
-    externalEl.className = 'trust-value green';
+    renderNetworkSummary();
     renderNetworkLog();
+  });
+
+  // The steps for checking the log with Chrome's own tools live in the privacy policy.
+  $('network-log-verify').addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/privacy/privacy.html#verify-network') });
+  });
+
+  // The service worker announces new entries; refresh while the panel is showing.
+  chrome.runtime.onMessage.addListener((message: Message) => {
+    if (message.type === 'NETWORK_LOG_UPDATED' && state.activeTab === 'trust') loadNetworkLog();
   });
 }
 
@@ -166,8 +191,13 @@ export function initNetworkLogListeners(): void {
 
 let auditLogCache: AuditEntry[] = [];
 
+async function fetchAuditLog(): Promise<AuditEntry[]> {
+  const res = await chrome.runtime.sendMessage({ type: 'GET_AUDIT_LOG' }).catch(() => null);
+  return (res?.payload ?? []) as AuditEntry[];
+}
+
 async function loadAuditLog(): Promise<void> {
-  auditLogCache = await getAuditLog();
+  auditLogCache = await fetchAuditLog();
   renderAuditLog();
 }
 
@@ -248,14 +278,13 @@ function renderAuditLog(): void {
 
 export function initAuditLogListeners(): void {
   $('btn-clear-audit-log').addEventListener('click', async () => {
-    await clearAuditLog();
+    await chrome.runtime.sendMessage({ type: 'CLEAR_AUDIT_LOG' }).catch(() => null);
     auditLogCache = [];
     renderAuditLog();
   });
 
   $('btn-export-audit-log').addEventListener('click', async () => {
-    const entries = await getAuditLog();
-    const json = exportAuditLog(entries);
+    const json = exportAuditLog(await fetchAuditLog());
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -263,5 +292,10 @@ export function initAuditLogListeners(): void {
     a.download = `edgeai-audit-log-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  });
+
+  // The service worker announces new entries; refresh while the panel is showing.
+  chrome.runtime.onMessage.addListener((message: Message) => {
+    if (message.type === 'AUDIT_LOG_UPDATED' && state.activeTab === 'trust') loadAuditLog();
   });
 }

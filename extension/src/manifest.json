@@ -2,25 +2,21 @@
   "manifest_version": 3,
   "name": "EdgeAI — Private AI Assistant",
   "version": "0.1.0",
-  "description": "Your AI. Your device. Your data. Runs fully offline. No API keys, no accounts, no data leaves your device.",
+  "description": "Your AI. Your device. Your data. Works offline once the models download. No API keys, no accounts, no data leaves your device.",
 
   "permissions": [
     "offscreen",
     "storage",
-    "alarms",
+    "unlimitedStorage",
     "notifications",
-    "bookmarks",
     "activeTab",
     "scripting",
-    "unlimitedStorage",
     "contextMenus",
-    "webRequest",
     "sidePanel"
   ],
 
-  "host_permissions": [
-    "https://*/*",
-    "http://*/*"
+  "optional_permissions": [
+    "bookmarks"
   ],
 
   "action": {
@@ -38,14 +34,6 @@
     "service_worker": "src/background/service-worker.ts",
     "type": "module"
   },
-
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/content-script.ts"],
-      "run_at": "document_idle"
-    }
-  ],
 
   "icons": {
     "16": "icons/icon16.png",
@@ -65,13 +53,6 @@
   "cross_origin_embedder_policy": {
     "value": "credentialless"
   },
-
-  "web_accessible_resources": [
-    {
-      "resources": ["chunks/*", "assets/*", "ort/*"],
-      "matches": ["<all_urls>"]
-    }
-  ],
 
   "commands": {
     "_execute_action": {

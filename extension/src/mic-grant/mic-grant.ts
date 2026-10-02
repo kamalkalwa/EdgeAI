@@ -7,6 +7,10 @@
  * the user can use voice input from the popup.
  */
 
+import { reportNetworkRequests } from '@/lib/trust/request-reporter';
+
+reportNetworkRequests('mic-grant');
+
 const btnGrant = document.getElementById('btn-grant') as HTMLButtonElement;
 const statusEl = document.getElementById('status')!;
 

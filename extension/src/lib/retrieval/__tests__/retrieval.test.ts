@@ -87,4 +87,22 @@ describe('buildSystemPrompt()', () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toMatch(/ignore it/i);
   });
+
+  it('without excerpts, says none came and rules out citing documents', () => {
+    // A prompt that talks about the user's documents either way had Phi-4
+    // answering "Paris, as reflected in documents…" with nothing imported.
+    const prompt = buildSystemPrompt();
+    expect(prompt).toMatch(/no excerpts from the user's documents came with this message/i);
+    expect(prompt).toMatch(/do not mention, cite or make up documents/i);
+    expect(prompt).not.toMatch(/MUST use them|reference its source|have access to the user's/i);
+  });
+
+  it('with excerpts, has the model answer from them and cite them, and ends with them', () => {
+    const excerpts = '=== BEGIN RETRIEVED DOCUMENT EXCERPTS ===\n[SOURCE: Notes, Sep 25]\nviolet harbor\n=== END RETRIEVED DOCUMENT EXCERPTS ===';
+    const prompt = buildSystemPrompt(excerpts);
+    expect(prompt).toMatch(/MUST use them to answer/);
+    expect(prompt).toMatch(/reference its source document title and date/i);
+    expect(prompt).not.toMatch(/no excerpts/i);
+    expect(prompt.endsWith(excerpts)).toBe(true);
+  });
 });

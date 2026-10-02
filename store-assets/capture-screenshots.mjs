@@ -1,112 +1,239 @@
 /**
- * Capture extension UI screenshots for Chrome Web Store.
+ * Capture extension UI screenshots for the Chrome Web Store.
  *
- * The popup HTML renders its full CSS layout even without Chrome APIs.
- * We mock chrome.* minimally so JS doesn't throw on load, then capture
- * the static UI at various states.
+ * Renders the built popup (run `npm run build:prod` in extension/ first) from
+ * a local server, with chrome.* replaced by a stub that answers with demo
+ * data: a finished install with a few documents and chats. Its network log
+ * holds the requests a real first run makes: the ones the Trust Panel logged
+ * in a test install for the embedding, reranker, speech and VAD models, then
+ * Phi-4-mini's config, tokenizer and 66 weight shards. The UI is the real one;
+ * only the state is staged.
  */
 
 import puppeteer from 'puppeteer';
-import { resolve, dirname } from 'path';
+import http from 'http';
+import { resolve, dirname, extname, join, normalize } from 'path';
 import { fileURLToPath } from 'url';
 import { setTimeout as sleep } from 'timers/promises';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const DIST = resolve(__dirname, '../extension/dist');
+const OUT = resolve(__dirname);
 
 function toDataUri(pngPath) {
   const buf = readFileSync(pngPath);
   return `data:image/png;base64,${buf.toString('base64')}`;
 }
-const POPUP_HTML = resolve(__dirname, '../extension/src/popup/popup.html');
-const OUT = resolve(__dirname);
 
-async function capturePopup(page, name, options = {}) {
-  const path = resolve(OUT, `${name}.png`);
+// ─── Demo state ───────────────────────────────────────────────────────────────
+
+const HF = 'https://huggingface.co';
+const PHI = 'mlc-ai/Phi-4-mini-instruct-q4f16_1-MLC';
+
+// [status, repo, file] in the order a first run requests them. transformers.js
+// probes most files with a range request (206) before downloading them (200).
+const FIRST_RUN_REQUESTS = [
+  [200, 'Xenova/bge-small-en-v1.5', 'config.json'],
+  [206, 'Xenova/bge-small-en-v1.5', 'tokenizer_config.json'],
+  [206, 'Xenova/bge-small-en-v1.5', 'tokenizer.json'],
+  [206, 'Xenova/bge-small-en-v1.5', 'onnx/model.onnx'],
+  [200, 'Xenova/bge-small-en-v1.5', 'tokenizer_config.json'],
+  [200, 'Xenova/bge-small-en-v1.5', 'tokenizer.json'],
+  [200, 'Xenova/bge-small-en-v1.5', 'onnx/model.onnx'],
+  [200, 'Xenova/ms-marco-MiniLM-L-6-v2', 'config.json'],
+  [206, 'Xenova/ms-marco-MiniLM-L-6-v2', 'tokenizer_config.json'],
+  [206, 'Xenova/ms-marco-MiniLM-L-6-v2', 'tokenizer.json'],
+  [200, 'Xenova/ms-marco-MiniLM-L-6-v2', 'tokenizer_config.json'],
+  [200, 'Xenova/ms-marco-MiniLM-L-6-v2', 'tokenizer.json'],
+  [206, 'Xenova/ms-marco-MiniLM-L-6-v2', 'onnx/model_int8.onnx'],
+  [206, 'Xenova/ms-marco-MiniLM-L-6-v2', 'onnx/model_int8.onnx'],
+  [200, 'Xenova/ms-marco-MiniLM-L-6-v2', 'onnx/model_int8.onnx'],
+  [200, 'onnx-community/silero-vad', 'onnx/model.onnx'],
+  [200, 'onnx-community/moonshine-tiny-ONNX', 'config.json'],
+  [206, 'onnx-community/moonshine-tiny-ONNX', 'tokenizer_config.json'],
+  [206, 'onnx-community/moonshine-tiny-ONNX', 'preprocessor_config.json'],
+  [206, 'onnx-community/moonshine-tiny-ONNX', 'tokenizer.json'],
+  [206, 'onnx-community/moonshine-tiny-ONNX', 'generation_config.json'],
+  [206, 'onnx-community/moonshine-tiny-ONNX', 'onnx/encoder_model.onnx'],
+  [206, 'onnx-community/moonshine-tiny-ONNX', 'onnx/decoder_model_merged_q4.onnx'],
+  [200, 'onnx-community/moonshine-tiny-ONNX', 'preprocessor_config.json'],
+  [200, 'onnx-community/moonshine-tiny-ONNX', 'tokenizer_config.json'],
+  [200, 'onnx-community/moonshine-tiny-ONNX', 'tokenizer.json'],
+  [200, 'onnx-community/moonshine-tiny-ONNX', 'generation_config.json'],
+  [200, 'onnx-community/moonshine-tiny-ONNX', 'onnx/encoder_model.onnx'],
+  [200, 'onnx-community/moonshine-tiny-ONNX', 'onnx/decoder_model_merged_q4.onnx'],
+  [200, PHI, 'mlc-chat-config.json'],
+  [200, PHI, 'tensor-cache.json'],
+  [200, PHI, 'tokenizer.json'],
+  ...Array.from({ length: 66 }, (_, i) => [200, PHI, `params_shard_${i}.bin`]),
+];
+
+const INSTALLED_AT = Date.UTC(2026, 8, 22, 9, 14, 0);
+const NETWORK_LOG = FIRST_RUN_REQUESTS.map(([statusCode, repo, file], i) => {
+  const url = `${HF}/${repo}/resolve/main/${file}`;
+  return {
+    id: `offscreen:${INSTALLED_AT}:${i}:${url}`,
+    url,
+    timestamp: INSTALLED_AT + i * 2400,
+    statusCode,
+    initiatorType: 'fetch',
+    context: 'offscreen',
+    category: 'model_download',
+  };
+});
+
+const DAY = 86_400_000;
+const DOCUMENTS = [
+  ['Reading notes: Designing Data-Intensive Applications', 'obsidian', 21],
+  ['Weekly review, Sep 19', 'obsidian', 4],
+  ['Trip plan: Lisbon', 'obsidian', 6],
+  ['Attention Is All You Need.pdf', 'pdf', 38],
+  ['Lease agreement 2026.pdf', 'pdf', 27],
+  ['WebGPU fundamentals', 'web_page', 12],
+  ['How the Chrome extension service worker lifecycle works', 'web_page', 9],
+  ['Home renovation budget', 'obsidian', 5],
+].map(([title, source, chunkCount], i) => ({
+  id: `doc-${i}`,
+  title,
+  source,
+  sourcePath: source === 'web_page' ? `https://example.com/${i}` : `${title}`,
+  createdAt: INSTALLED_AT + i * DAY / 3,
+  updatedAt: INSTALLED_AT + i * DAY / 3,
+  charCount: chunkCount * 900,
+  chunkCount,
+}));
+
+const SESSIONS = [
+  'What does the lease say about notice periods?',
+  'Summarize the replication chapter',
+  'Lisbon day trips',
+  'Renovation costs so far',
+].map((title, i) => ({ id: `session-${i}`, title, updatedAt: INSTALLED_AT + (i + 1) * DAY / 2, messageCount: 4 + i * 2 }));
+
+const STORAGE = {
+  onboardingComplete: true,
+  chatSessionIndex: SESSIONS,
+  activeSessionId: 'session-new',
+  'chatSession_session-new': [],
+};
+
+// What the Privacy tab reads straight from the browser.
+const STORAGE_ESTIMATE = { usage: 2_430_000_000, quota: 2_430_000_000 + 180_000_000_000 };
+const CACHE_FILES = { 'webllm/config': 3, 'webllm/model': 66, 'transformers-cache': 16 };
+
+function installChromeStub({ storage, documents, networkLog, estimate, cacheFiles }) {
+  const noop = () => {};
+  const store = { ...storage };
+  const pick = (keys) => {
+    if (keys == null) return { ...store };
+    const list = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
+    return Object.fromEntries(list.filter((k) => k in store).map((k) => [k, store[k]]));
+  };
+  const replies = {
+    GET_STATUS: { type: 'STATUS', payload: { llmReady: true, embeddingsReady: true, storeReady: true, modelId: 'Phi-4-mini-instruct-q4f16_1-MLC' } },
+    LIST_DOCUMENTS: { type: 'DOCUMENTS_LIST', payload: documents },
+    GET_NETWORK_LOG: { type: 'NETWORK_LOG', payload: networkLog },
+  };
+  window.chrome = {
+    runtime: {
+      id: 'demo',
+      sendMessage: (message) => Promise.resolve(replies[message?.type] ?? { acknowledged: true }),
+      onMessage: { addListener: noop, removeListener: noop },
+      getURL: (path) => `/${path}`,
+    },
+    storage: {
+      local: {
+        get: (keys) => Promise.resolve(pick(keys)),
+        set: (items) => { Object.assign(store, items); return Promise.resolve(); },
+        remove: () => Promise.resolve(),
+        clear: () => Promise.resolve(),
+      },
+      onChanged: { addListener: noop },
+    },
+    tabs: {
+      query: () => Promise.resolve([{ id: 1, url: 'https://example.com', title: 'Example' }]),
+      create: () => Promise.resolve({}),
+    },
+    windows: { getCurrent: () => Promise.resolve({ id: 1 }) },
+    sidePanel: { open: () => Promise.resolve() },
+    permissions: { contains: () => Promise.resolve(true), request: () => Promise.resolve(true) },
+  };
+  navigator.storage.estimate = () => Promise.resolve(estimate);
+  const names = Object.keys(cacheFiles);
+  window.caches.keys = () => Promise.resolve(names);
+  window.caches.open = (name) => Promise.resolve({ keys: () => Promise.resolve(Array.from({ length: cacheFiles[name] ?? 0 })) });
+}
+
+// ─── Local server for the built extension ────────────────────────────────────
+
+const TYPES = {
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.woff2': 'font/woff2',
+};
+
+function serve(root) {
+  const server = http.createServer((req, res) => {
+    const path = normalize(join(root, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
+    if (!path.startsWith(root) || !existsSync(path)) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' });
+    res.end(readFileSync(path));
+  });
+  return new Promise((ready) => server.listen(0, '127.0.0.1', () => ready(server)));
+}
+
+// ─── Capture ─────────────────────────────────────────────────────────────────
+
+async function openPopup(browser, base, { height, query = '' }) {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 380, height, deviceScaleFactor: 2 });
+  await page.evaluateOnNewDocument(installChromeStub, {
+    storage: STORAGE, documents: DOCUMENTS, networkLog: NETWORK_LOG,
+    estimate: STORAGE_ESTIMATE, cacheFiles: CACHE_FILES,
+  });
+  await page.goto(`${base}/src/popup/popup.html${query}`, { waitUntil: 'networkidle0' });
+  await page.waitForFunction(() => document.getElementById('status-text')?.textContent === 'Ready');
+  await sleep(800); // let animations settle
+  return page;
+}
+
+async function showTab(page, name) {
+  await page.evaluate((n) => document.querySelector(`.tab[data-tab="${n}"]`).click(), name);
+  await sleep(600);
+}
+
+// Chrome sizes the toolbar popup to its body, which can be shorter than the viewport
+async function capturePopup(page, name) {
+  const height = await page.evaluate(() => Math.ceil(document.body.getBoundingClientRect().height));
+  const viewport = page.viewport();
   await page.screenshot({
-    path,
-    clip: options.clip,
-    ...(!options.clip && { fullPage: false }),
+    path: resolve(OUT, `${name}.png`),
+    clip: { x: 0, y: 0, width: viewport.width, height: Math.min(height, viewport.height) },
   });
   console.log(`Captured: ${name}.png`);
 }
 
 async function main() {
+  if (!existsSync(join(DIST, 'src/popup/popup.html'))) {
+    throw new Error('No build found. Run `npm run build:prod` in extension/ first.');
+  }
+  const server = await serve(DIST);
+  const base = `http://127.0.0.1:${server.address().port}`;
   const browser = await puppeteer.launch({ headless: true });
-  const page = await browser.newPage();
 
-  // Set popup dimensions (380x600 is the extension popup size)
-  await page.setViewport({ width: 380, height: 600, deviceScaleFactor: 2 });
+  // The toolbar popup: 380x600
+  const popup = await openPopup(browser, base, { height: 600 });
+  await capturePopup(popup, 'popup-chat');
+  await showTab(popup, 'docs');
+  await capturePopup(popup, 'popup-docs');
 
-  // Mock chrome APIs before page loads so scripts don't crash
-  await page.evaluateOnNewDocument(() => {
-    const noop = () => {};
-    const noopPromise = () => Promise.resolve({});
-    const noopCb = () => ({ catch: noop });
-
-    window.chrome = {
-      runtime: {
-        sendMessage: () => Promise.resolve({
-          type: 'STATUS',
-          payload: { llmReady: true, embeddingsReady: true, storeReady: true },
-        }),
-        onMessage: {
-          addListener: noop,
-          removeListener: noop,
-        },
-        getURL: (path) => path,
-        id: 'mock-extension-id',
-      },
-      storage: {
-        local: {
-          get: (keys) => Promise.resolve({}),
-          set: noopPromise,
-        },
-        onChanged: { addListener: noop },
-      },
-      tabs: {
-        query: () => Promise.resolve([{ id: 1, url: 'https://example.com', title: 'Example' }]),
-        sendMessage: noopPromise,
-        create: noopPromise,
-      },
-      windows: {
-        getCurrent: () => Promise.resolve({ id: 1 }),
-      },
-      sidePanel: {
-        open: noopPromise,
-      },
-      permissions: {
-        contains: () => Promise.resolve(true),
-      },
-    };
-  });
-
-  await page.goto(`file://${POPUP_HTML}`, { waitUntil: 'networkidle0' });
-  await sleep(1000); // Let animations settle
-
-  // Screenshot 1: Main chat UI (default state)
-  await capturePopup(page, 'popup-chat');
-
-  // Click the Docs tab to show documents pane
-  const tabs = await page.$$('.tab');
-  if (tabs.length >= 2) {
-    await tabs[1].click();
-    await sleep(500);
-    await capturePopup(page, 'popup-docs');
-  }
-
-  // Click the Trust tab
-  if (tabs.length >= 3) {
-    await tabs[2].click();
-    await sleep(500);
-    await capturePopup(page, 'popup-trust');
-  }
-
-  // Back to chat tab
-  if (tabs.length >= 1) {
-    await tabs[0].click();
-    await sleep(300);
-  }
+  // The Privacy tab as the side panel shows it, tall enough for the network log
+  const panel = await openPopup(browser, base, { height: 720, query: '?stealth=1' });
+  await showTab(panel, 'trust');
+  await panel.waitForFunction(() => document.getElementById('trust-network-count')?.textContent !== '–');
+  await panel.evaluate(() => document.getElementById('network-hide-models').click()); // show the downloads
+  await sleep(400);
+  await capturePopup(panel, 'popup-trust');
 
   // ── Chrome Web Store format: 1280x800 composite mockups ──
 
@@ -187,7 +314,6 @@ async function main() {
       }
       .popup-frame {
         width: 380px;
-        height: 560px;
         border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(99,102,241,0.1);
@@ -195,10 +321,8 @@ async function main() {
         background: #0f0f0f;
       }
       .popup-frame img {
+        display: block;
         width: 100%;
-        height: 100%;
-        object-fit: cover;
-        object-position: top;
       }
     </style></head>
     <body>
@@ -261,7 +385,7 @@ async function main() {
         position: relative;
         z-index: 1;
       }
-      .text-side { max-width: 420px; }
+      .text-side { max-width: 440px; }
       .text-side h1 {
         font-size: 38px;
         font-weight: 800;
@@ -279,6 +403,7 @@ async function main() {
       .proof-row {
         display: flex;
         justify-content: space-between;
+        gap: 24px;
         padding: 4px 0;
         font-size: 13px;
       }
@@ -286,7 +411,7 @@ async function main() {
       .proof-row .value { color: #22c55e; font-family: 'SF Mono', monospace; font-size: 12px; }
       .popup-frame {
         width: 380px;
-        height: 560px;
+        height: 720px;
         border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(34,197,94,0.08);
@@ -299,19 +424,19 @@ async function main() {
       <div class="glow"></div>
       <div class="content">
         <div class="text-side">
-          <h1><span class="accent">Verify</span> your privacy</h1>
-          <p>Built-in Trust Panel shows every network request, every operation, every byte. Prove to yourself &mdash; and your compliance team &mdash; that no data leaves your device.</p>
+          <h1><span class="accent">Check</span> every request</h1>
+          <p>The Trust Panel lists every network request EdgeAI makes: the one-time model downloads from Hugging Face, and nothing else. The privacy policy shows how to confirm it in Chrome DevTools.</p>
           <div class="proof-box">
             <div class="proof-row">
-              <span class="label">External API calls</span>
-              <span class="value">0 requests</span>
+              <span class="label">Requests other than model downloads</span>
+              <span class="value">None</span>
             </div>
             <div class="proof-row">
-              <span class="label">Data sent to servers</span>
-              <span class="value">0 bytes</span>
+              <span class="label">Pages read without you asking</span>
+              <span class="value">None</span>
             </div>
             <div class="proof-row">
-              <span class="label">Analytics / telemetry</span>
+              <span class="label">Accounts, API keys, analytics</span>
               <span class="value">None</span>
             </div>
           </div>
@@ -331,7 +456,11 @@ async function main() {
   console.log('Captured: store-screenshot-2-trust.png');
 
   await browser.close();
+  server.close();
   console.log('Done — all screenshots captured.');
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

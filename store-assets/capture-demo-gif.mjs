@@ -1,26 +1,31 @@
 /**
- * Capture an animated demo GIF showing the Trust Panel's network monitor
- * proving zero outbound requests.
+ * Capture an animated demo GIF: ask a question, get a sourced answer, then
+ * open the Privacy tab, whose network log holds nothing but model downloads.
  *
  * Flow:
  * 1. Show popup in "Ready" state on Chat tab
  * 2. User types a question → AI responds (simulated)
- * 3. Switch to Trust/Privacy tab → network monitor shows 0 external requests
- * 4. Highlight "Zero data sent" proof
+ * 3. Switch to the Privacy tab → "Requests other than model downloads: None"
+ * 4. Show the network log (Hugging Face downloads) and the audit log
+ *
+ * The page is a simplified copy of the popup. Keep its Privacy tab in step
+ * with the real one (popup.html, modules/trust.ts).
  */
 
 import puppeteer from 'puppeteer';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { setTimeout as sleep } from 'timers/promises';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, rmSync } from 'fs';
 import { execSync } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FRAMES_DIR = resolve(__dirname, 'gif-frames');
 const OUT_GIF = resolve(__dirname, 'demo-trust-proof.gif');
 
-if (!existsSync(FRAMES_DIR)) mkdirSync(FRAMES_DIR, { recursive: true });
+// Start empty: frames left from a longer run would end up in the GIF
+rmSync(FRAMES_DIR, { recursive: true, force: true });
+mkdirSync(FRAMES_DIR, { recursive: true });
 
 let frameNum = 0;
 
@@ -91,8 +96,11 @@ async function main() {
   .trust-row .value.green { color: var(--green); }
   .trust-row .value.red { color: var(--red); }
 
-  .zero-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); border-radius: 8px; padding: 10px 14px; margin-top: 8px; font-size: 13px; color: var(--green); font-weight: 600; }
-  .zero-badge .icon { font-size: 16px; }
+  .log-note { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+  .log-note a { color: var(--accent); text-decoration: none; }
+  .log-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); font-family: 'SF Mono', monospace; font-size: 11px; color: var(--text-muted); }
+  .log-row .url { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; color: var(--text); }
+  .log-row .badge { flex-shrink: 0; font-size: 9px; padding: 1px 5px; border-radius: 3px; background: var(--accent); color: #fff; opacity: 0.7; font-weight: 600; }
 
   .audit-entry { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; font-size: 12px; }
   .audit-entry .type { color: var(--accent); font-weight: 600; font-size: 11px; text-transform: uppercase; }
@@ -146,13 +154,15 @@ async function main() {
       <div class="trust-section">
         <h3>Network Activity</h3>
         <div class="trust-card" id="network-card">
-          <div class="trust-row"><span class="label">External API calls</span><span class="value green">0 requests</span></div>
-          <div class="trust-row"><span class="label">Data sent to servers</span><span class="value green">0 bytes</span></div>
-          <div class="trust-row"><span class="label">Analytics / telemetry</span><span class="value green">None</span></div>
-          <div class="trust-row"><span class="label">Model cache (local)</span><span class="value" style="color:#9a9a9a">2.4 GB</span></div>
+          <div class="trust-row"><span class="label">Network requests logged</span><span class="value">98 requests</span></div>
+          <div class="trust-row"><span class="label">Requests other than model downloads</span><span class="value green">None</span></div>
+          <div class="trust-row"><span class="label">Model runs on</span><span class="value green">Your device</span></div>
         </div>
-        <div class="zero-badge hidden" id="zero-badge">
-          <span class="icon">&#9989;</span> Zero data sent — verified
+        <div class="hidden" id="network-log">
+          <p class="log-note">Every request EdgeAI's own pages make, logged when it finishes. <a>Check it yourself</a></p>
+          <div class="log-row"><span>14:47</span><span class="url">huggingface.co/ml…params_shard_65.bin</span><span class="badge">MODEL</span></div>
+          <div class="log-row"><span>14:47</span><span class="url">huggingface.co/ml…params_shard_64.bin</span><span class="badge">MODEL</span></div>
+          <div class="log-row"><span>14:47</span><span class="url">huggingface.co/ml…params_shard_63.bin</span><span class="badge">MODEL</span></div>
         </div>
       </div>
 
@@ -259,9 +269,9 @@ async function main() {
   });
   await captureFrame(page, 6);
 
-  // ── Scene 7: Show zero-badge ──
+  // ── Scene 7: Show the network log: model downloads only ──
   await page.evaluate(() => {
-    document.getElementById('zero-badge').classList.remove('hidden');
+    document.getElementById('network-log').classList.remove('hidden');
   });
   await captureFrame(page, 10);
 

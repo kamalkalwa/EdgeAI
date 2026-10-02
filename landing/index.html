@@ -538,14 +538,14 @@
 
     <!-- Trust proof widget -->
     <div class="trust-proof">
-      <div class="trust-proof-header">Network Activity (Live Proof)</div>
+      <div class="trust-proof-header">What the Trust Panel shows after setup</div>
       <div class="trust-row">
-        <span class="label">External API calls</span>
-        <span class="value green">0 requests</span>
+        <span class="label">Requests other than model downloads</span>
+        <span class="value green">None</span>
       </div>
       <div class="trust-row">
-        <span class="label">Data sent to servers</span>
-        <span class="value green">0 bytes</span>
+        <span class="label">Pages read without you asking</span>
+        <span class="value green">None</span>
       </div>
       <div class="trust-row">
         <span class="label">Telemetry / analytics</span>
@@ -553,7 +553,7 @@
       </div>
       <div class="trust-row">
         <span class="label">Model downloads (first run only)</span>
-        <span class="value" style="color: var(--text-muted)">Hugging Face CDN</span>
+        <span class="value" style="color: var(--text-muted)">Hugging Face</span>
       </div>
     </div>
   </div>
@@ -593,7 +593,7 @@
       <div class="feature-card">
         <div class="feature-icon">🔒</div>
         <h3>Built-in Trust Panel</h3>
-        <p>Live network monitor proves zero outbound requests. Audit log tracks every operation. Build hash verifies source code integrity.</p>
+        <p>A network log lists every request EdgeAI makes, and the privacy policy shows how to check it in Chrome DevTools. Audit log tracks every operation. Build hash shows which commit you're running.</p>
       </div>
 
       <div class="feature-card">
@@ -691,8 +691,8 @@
 
     <div class="enterprise-grid">
       <div class="enterprise-item">
-        <h4>Zero-egress architecture</h4>
-        <p>No data ever leaves the device. Network monitor provides auditable proof for compliance teams.</p>
+        <h4>Your data stays on the device</h4>
+        <p>Documents, chats and voice never leave the device. The network log lists every request EdgeAI makes, and your security team can confirm it in DevTools.</p>
       </div>
       <div class="enterprise-item">
         <h4>No vendor lock-in</h4>
@@ -704,7 +704,7 @@
       </div>
       <div class="enterprise-item">
         <h4>Works in air-gapped networks</h4>
-        <p>After initial model download, zero internet required. Pre-load models for fully disconnected deployments.</p>
+        <p>After the one-time model download, EdgeAI needs no internet connection.</p>
       </div>
     </div>
   </div>

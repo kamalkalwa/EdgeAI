@@ -147,9 +147,10 @@ export function initSettingsListeners(): void {
       showToast(`Could not clear documents: ${res?.error ?? res?.payload?.error ?? 'no response from engine'}`);
       return;
     }
-    // 2. The network log is held in service-worker memory as well as storage.
+    // 2. The Trust Panel's logs are held in service-worker memory as well as storage.
     await chrome.runtime.sendMessage({ type: 'CLEAR_NETWORK_LOG' }).catch(() => null);
-    // 3. Chat sessions, audit log, settings, onboarding flag.
+    await chrome.runtime.sendMessage({ type: 'CLEAR_AUDIT_LOG' }).catch(() => null);
+    // 3. Chat sessions, settings, onboarding flag.
     await chrome.storage.local.clear().catch(console.error);
 
     clearBtn.textContent = 'All data cleared';

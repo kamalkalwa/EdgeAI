@@ -12,8 +12,10 @@ EdgeAI — Private AI Assistant
 
 ## Short Description (132 chars max)
 
+The store shows the manifest's `description` as the summary, so this must match `extension/src/manifest.json`.
+
 ```
-Private AI assistant that runs 100% on your device. Chat, search your documents, use voice — no API keys, no cloud, no data leaves.
+Your AI. Your device. Your data. Works offline once the models download. No API keys, no accounts, no data leaves your device.
 ```
 
 ## Detailed Description
@@ -38,17 +40,19 @@ All AI inference runs locally using WebGPU and WebAssembly:
 - Voice: Moonshine-tiny ASR + Silero VAD
 - Retrieval: 3-stage hybrid search (BM25 + vector + reranker)
 
-Models download from Hugging Face on first launch (one-time, ~2.5GB). After that, everything works offline.
+Models download from Hugging Face on first launch (one-time, about 2.4GB). After that, everything works offline.
 
 TRUST & TRANSPARENCY
 
 EdgeAI includes a built-in Trust Panel so you can verify its privacy claims:
-- Live Network Monitor — see every outbound request (should be zero during normal use)
-- Audit Log — every query, search, and import is logged locally
-- Build Verification — verify the exact source code commit
-- Data Inventory — see exactly what's stored and how much space it uses
+- Network log: every request EdgeAI makes, listed as it finishes. Once the models are downloaded, nothing new should appear
+- Audit Log: every query, search, and import is logged locally
+- Build Verification: verify the exact source code commit
+- Data Inventory: see exactly what's stored and how much space it uses
 
-The only network requests are model downloads from Hugging Face CDN on first use. You can verify this yourself in the Trust Panel.
+The only network requests are model downloads from Hugging Face on first use. The privacy policy shows how to check the network log against Chrome's own DevTools.
+
+EdgeAI can't see the sites you visit. It reads a page only when you ask it to index that page.
 
 REQUIREMENTS
 
@@ -129,13 +133,13 @@ EdgeAI provides a fully local AI assistant that lets users chat with an AI model
 |-----------|--------------|
 | `offscreen` | Required to run WebGPU-based AI inference in a background document, as service workers cannot access WebGPU |
 | `storage` / `unlimitedStorage` | Store user's imported documents, vector embeddings, chat history, and cached model files locally |
-| `activeTab` / `scripting` | Extract page content when user explicitly clicks "Index this tab" |
-| `bookmarks` | Import Chrome bookmarks for search indexing, only when user explicitly initiates import |
-| `host_permissions` (all URLs) | Download AI model weight files from huggingface.co on first use; extract content from any tab the user explicitly chooses to index |
-| `webRequest` | Read-only network monitoring for the Trust Panel. Only requests initiated by the extension itself are recorded (filtered by initiator); requests from web pages the user visits are never observed or stored. Lets users verify that no data leaves their device |
-| `alarms` / `notifications` | Support voice-initiated reminders with Chrome notifications |
+| `activeTab` / `scripting` | Read the text of the current tab when the user asks to index it ("Index this tab" in the popup, or "Index this page with EdgeAI" in the right-click menu). A function is injected into that tab at that moment and returns the page text. EdgeAI has no content scripts and no host permissions |
 | `contextMenus` | Add "Index this page with EdgeAI" to the right-click context menu |
+| `notifications` | Confirm that a page chosen from the right-click menu is being indexed, or say why it can't be read; report a bookmark import that finished after the popup closed |
 | `sidePanel` | Allow EdgeAI to open in Chrome's side panel for persistent use alongside web content |
+| `bookmarks` (optional) | Requested at runtime, only when the user chooses Import → Chrome Bookmarks. Bookmark titles and URLs are indexed locally; the pages are not fetched |
+
+No host permissions: model files download from huggingface.co, which serves them with CORS headers, so the extension needs no access to any site.
 
 ### Certify no data sold to third parties
 
@@ -156,8 +160,8 @@ privacy-first AI, WebGPU AI, obsidian AI, PDF search, local LLM
 ## Store Assets Checklist
 
 - [x] Icon: 128x128 PNG — `extension/public/icons/icon128.png`
-- [x] Screenshots (1280x800): `store-assets/store-screenshot-1-hero.png` (chat + sources), `store-assets/store-screenshot-2-trust.png` (Trust Panel)
+- [x] Screenshots (1280x800): `store-assets/store-screenshot-1-hero.png` (chat, ready), `store-assets/store-screenshot-2-trust.png` (Privacy tab: the network log after a first run). Both render the built popup with demo data: `cd extension && npm run build:prod`, then `cd ../store-assets && node capture-screenshots.mjs`
 - [ ] Optional extra screenshots: document import, voice, "Index this tab" — regenerate with `store-assets/capture-screenshots.mjs`
 - [x] Promotional tile 440x280: `store-assets/promo-tile-440x280.png`
-- [x] Demo GIF: `store-assets/demo-trust-proof.gif` (README; the store form takes a YouTube link only)
+- [x] Demo GIF: `store-assets/demo-trust-proof.gif` (README; the store form takes a YouTube link only). A hand-built mockup of the popup: keep its Privacy tab in step with the real one
 - [ ] Package: `cd extension && npm run build:store` → `extension/edgeai-chrome-store.zip` (commit first — the Trust Panel shows the build's git hash)
