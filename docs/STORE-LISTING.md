@@ -58,7 +58,7 @@ REQUIREMENTS
 
 - Chrome 116+ with WebGPU enabled
 - ~4GB available RAM (for AI model inference)
-- ~3GB disk space (for cached model files)
+- About 5GB free disk space (for the model download)
 
 OPEN SOURCE
 
@@ -159,9 +159,9 @@ privacy-first AI, WebGPU AI, obsidian AI, PDF search, local LLM
 
 ## Store Assets Checklist
 
-- [x] Icon: 128x128 PNG — `extension/public/icons/icon128.png`
+- [x] Icon: 128x128 PNG — `extension/icons/icon128.png` (96 px artwork, 16 px transparent padding). All four sizes render from `store-assets/icon.svg`: `cd store-assets && node generate-icons.mjs`
 - [x] Screenshots (1280x800): `store-assets/store-screenshot-1-hero.png` (chat, ready), `store-assets/store-screenshot-2-trust.png` (Privacy tab: the network log after a first run). Both render the built popup with demo data: `cd extension && npm run build:prod`, then `cd ../store-assets && node capture-screenshots.mjs`
 - [ ] Optional extra screenshots: document import, voice, "Index this tab" — regenerate with `store-assets/capture-screenshots.mjs`
-- [x] Promotional tile 440x280: `store-assets/promo-tile-440x280.png`
+- [x] Promotional tile 440x280: `store-assets/promo-tile-440x280.png`, from `promo-tile.html` via `node generate-promo.mjs`
 - [x] Demo GIF: `store-assets/demo-trust-proof.gif` (README; the store form takes a YouTube link only). A hand-built mockup of the popup: keep its Privacy tab in step with the real one
 - [ ] Package: `cd extension && npm run build:store` → `extension/edgeai-chrome-store.zip` (commit first — the Trust Panel shows the build's git hash)

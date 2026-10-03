@@ -121,7 +121,7 @@ extension/
 │   │   ├── voice/
 │   │   │   ├── asr.ts              # Moonshine ASR + VoiceSession (494 lines)
 │   │   │   ├── vad.ts              # Silero VAD (143 lines)
-│   │   │   └── tts.ts              # Web Speech TTS (99 lines)
+│   │   │   └── tts.ts              # Web Speech TTS, on-device voices only (144 lines)
 │   │   └── connectors/
 │   │       ├── obsidian.ts          # File System Access API (204 lines)
 │   │       ├── pdf.ts               # pdf.js connector (85 lines)
@@ -1057,9 +1057,13 @@ Generator yielding non-overlapping 512-sample `Float32Array` slices. Frames are 
 
 | Function | Description |
 |---|---|
-| `speak(text)` | Strip markdown → `speechSynthesis.speak()` |
+| `speak(text)` | Strip markdown → pick an on-device voice → `speechSynthesis.speak()` |
 | `stop()` | Cancel current speech |
 | `isSpeaking()` | Check if TTS is active |
+| `onDeviceVoices()` | Voices with `localService: true`; the Settings voice list shows only these |
+| `pickVoice(voices, name, lang)` | The chosen voice, else the default, else one for the user's language, else any, all on-device; undefined if there is none |
+
+**On-device voices only:** a voice with `localService: false` is a remote speech service (Chrome's "Google …" voices), so the text would leave the device. `speak()` always sets an on-device voice, even for "System default", because the browser's default voice can be remote. With no on-device voice it says nothing. Chrome fills the voice list after the first `getVoices()` call, so `speak()` waits for `voiceschanged` (at most 1 s) when the list is empty.
 
 **Markdown stripping:** Removes `**bold**`, `*italic*`, `` `code` ``, `[links](url)`, `#headings`, `---`, and other markdown syntax before speaking. Produces natural-sounding speech from LLM output.
 

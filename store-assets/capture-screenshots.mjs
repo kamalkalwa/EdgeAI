@@ -239,7 +239,8 @@ async function main() {
 
   // Create a wider page with the popup centered on a dark background
   const compositePage = await browser.newPage();
-  await compositePage.setViewport({ width: 1280, height: 800, deviceScaleFactor: 2 });
+  // Exactly 1280x800: the store wants these pixel dimensions
+  await compositePage.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
 
   // Generate a store-ready composite: popup mockup on gradient background
   await compositePage.setContent(`

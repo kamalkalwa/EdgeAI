@@ -3,6 +3,10 @@
  *
  * Strips markdown before reading aloud. Respects user settings for
  * speed and voice selection.
+ *
+ * Reads only with voices that run on this computer. A voice with
+ * `localService: false` (Chrome's "Google …" voices) is a remote speech
+ * service: the text would leave the device.
  */
 
 export interface TTSOptions {
@@ -48,12 +52,48 @@ export function stripMarkdown(text: string): string {
 }
 
 let currentUtterance: SpeechSynthesisUtterance | null = null;
+let speakRequests = 0;
+
+/** Voices that run on this computer, in the order the browser lists them. */
+export function onDeviceVoices(): SpeechSynthesisVoice[] {
+  return speechSynthesis.getVoices().filter((v) => v.localService);
+}
+
+/**
+ * The voice to read with: the chosen one, then the default, then one for the
+ * user's language, then any — always one that runs on this computer.
+ * Undefined when there is none.
+ */
+export function pickVoice(
+  voices: SpeechSynthesisVoice[],
+  voiceName: string | null | undefined,
+  lang: string,
+): SpeechSynthesisVoice | undefined {
+  const local = voices.filter((v) => v.localService);
+  const language = lang.slice(0, 2).toLowerCase();
+  return local.find((v) => v.name === voiceName)
+    ?? local.find((v) => v.default)
+    ?? local.find((v) => v.lang.toLowerCase().startsWith(language))
+    ?? local[0];
+}
+
+/** Chrome fills the voice list after the first getVoices() call. */
+function loadedVoices(): Promise<SpeechSynthesisVoice[]> {
+  const now = speechSynthesis.getVoices();
+  if (now.length > 0) return Promise.resolve(now);
+  return new Promise((resolve) => {
+    const done = () => resolve(speechSynthesis.getVoices());
+    speechSynthesis.addEventListener('voiceschanged', done, { once: true });
+    setTimeout(done, 1000);
+  });
+}
 
 /**
  * Speak the given text using Web Speech Synthesis.
  * Automatically strips markdown before speaking.
  * Only one utterance at a time — calling speak() while already speaking
- * will stop the current one first.
+ * will stop the current one first. With no on-device voice it says nothing
+ * and calls onEnd.
  */
 export function speak(text: string, options: TTSOptions = {}): void {
   stop(); // cancel any existing speech
@@ -61,32 +101,37 @@ export function speak(text: string, options: TTSOptions = {}): void {
   const cleanText = stripMarkdown(text);
   if (!cleanText) return;
 
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  utterance.rate = options.speed ?? 1.0;
+  const request = speakRequests;
+  void loadedVoices().then((voices) => {
+    if (request !== speakRequests) return; // stopped, or another speak() started
+    const voice = pickVoice(voices, options.voiceName, navigator.language);
+    if (!voice) {
+      options.onEnd?.();
+      return;
+    }
 
-  // Find the requested voice
-  if (options.voiceName) {
-    const voices = speechSynthesis.getVoices();
-    const match = voices.find((v) => v.name === options.voiceName);
-    if (match) utterance.voice = match;
-  }
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = options.speed ?? 1.0;
+    utterance.voice = voice;
 
-  utterance.onend = () => {
-    currentUtterance = null;
-    options.onEnd?.();
-  };
+    utterance.onend = () => {
+      currentUtterance = null;
+      options.onEnd?.();
+    };
 
-  utterance.onerror = () => {
-    currentUtterance = null;
-    options.onEnd?.();
-  };
+    utterance.onerror = () => {
+      currentUtterance = null;
+      options.onEnd?.();
+    };
 
-  currentUtterance = utterance;
-  speechSynthesis.speak(utterance);
+    currentUtterance = utterance;
+    speechSynthesis.speak(utterance);
+  });
 }
 
 /** Stop any currently playing speech. */
 export function stop(): void {
+  speakRequests++;
   if (speechSynthesis.speaking || speechSynthesis.pending) {
     speechSynthesis.cancel();
   }

@@ -5,6 +5,7 @@
 import type { DocumentMetadata, EdgeAISettings } from '@/lib/types';
 import { DEFAULT_SETTINGS } from '@/lib/types';
 import { formatBytes } from '@/lib/utils';
+import { onDeviceVoices } from '@/lib/voice/tts';
 import { currentSettings, setCurrentSettings } from './state';
 import { $, showToast } from './dom';
 
@@ -25,7 +26,7 @@ async function saveSettings(settings: EdgeAISettings): Promise<void> {
 }
 
 function populateVoiceDropdown(): void {
-  const voices = speechSynthesis.getVoices();
+  const voices = onDeviceVoices();
   while (settingTtsVoice.options.length > 1) settingTtsVoice.remove(1);
   for (const voice of voices) {
     const opt = document.createElement('option');
@@ -35,6 +36,8 @@ function populateVoiceDropdown(): void {
   }
   if (currentSettings.ttsVoiceName) {
     settingTtsVoice.value = currentSettings.ttsVoiceName;
+    // A voice saved before remote voices were hidden isn't listed.
+    if (settingTtsVoice.selectedIndex === -1) settingTtsVoice.value = '';
   }
 }
 
