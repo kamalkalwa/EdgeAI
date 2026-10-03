@@ -13,8 +13,8 @@ async function main() {
   const browser = await puppeteer.launch({ headless: true });
   const page = await browser.newPage();
 
-  // Set viewport to exact promo tile dimensions
-  await page.setViewport({ width: 440, height: 280, deviceScaleFactor: 2 });
+  // Exactly 440x280: the store wants these pixel dimensions
+  await page.setViewport({ width: 440, height: 280, deviceScaleFactor: 1 });
 
   const htmlPath = resolve(__dirname, 'promo-tile.html');
   await page.goto(`file://${htmlPath}`, { waitUntil: 'networkidle0' });
@@ -24,7 +24,7 @@ async function main() {
     clip: { x: 0, y: 0, width: 440, height: 280 },
   });
 
-  console.log('Generated: store-assets/promo-tile-440x280.png (440x280 @2x)');
+  console.log('Generated: store-assets/promo-tile-440x280.png (440x280)');
 
   await browser.close();
 }
