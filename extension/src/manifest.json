@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EdgeAI — Private AI Assistant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your AI. Your device. Your data. Works offline once the models download. No API keys, no accounts, no data leaves your device.",
 
   "permissions": [
