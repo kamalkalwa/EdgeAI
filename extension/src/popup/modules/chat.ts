@@ -3,7 +3,7 @@
  */
 
 import type { Message } from '@/lib/types';
-import { marked } from 'marked';
+import { markdownToHtml } from '@/lib/markdown';
 import { speak, stop as ttsStop, isSpeaking } from '@/lib/voice/tts';
 import { state, currentSettings } from './state';
 import {
@@ -14,11 +14,9 @@ import { saveChatHistory } from './sessions';
 
 // ─── Markdown ────────────────────────────────────────────────────────────────
 
-marked.setOptions({ gfm: true, breaks: true });
-
+// Model answers are untrusted; markdownToHtml never loads or embeds anything.
 export function renderMarkdown(text: string): string {
-  const html = marked.parse(text, { async: false }) as string;
-  return addCodeBlockHeaders(html);
+  return addCodeBlockHeaders(markdownToHtml(text));
 }
 
 function addCodeBlockHeaders(html: string): string {

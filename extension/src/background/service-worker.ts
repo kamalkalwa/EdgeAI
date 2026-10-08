@@ -164,11 +164,6 @@ async function handleOffscreenMessage(
 // The offscreen document broadcasts CHAT_CHUNK messages to the popup directly
 // with chrome.runtime.sendMessage; they don't pass through here.
 
-chrome.runtime.onMessageExternal?.addListener((message: Message, sender) => {
-  // Reserved for future MCP client connections from external apps
-  console.log('[SW] External message from:', sender.id, message.type);
-});
-
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 
 function notify(message: string): void {

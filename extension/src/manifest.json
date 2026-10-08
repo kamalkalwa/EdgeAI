@@ -43,7 +43,7 @@
   },
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self';"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; worker-src 'self'; connect-src 'self' data: blob: https://huggingface.co https://*.huggingface.co https://hf.co https://*.hf.co; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self'; form-action 'none'; base-uri 'none';"
   },
 
   "cross_origin_opener_policy": {
