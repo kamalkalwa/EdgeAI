@@ -1,6 +1,6 @@
 {
   "name": "edgeai-extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your AI. Your device. Your data. No one else's.",
   "private": true,
   "type": "module",

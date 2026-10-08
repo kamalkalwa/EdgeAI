@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EdgeAI — Private AI Assistant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Your AI. Your device. Your data. Works offline once the models download. No API keys, no accounts, no data leaves your device.",
 
   "permissions": [
@@ -43,7 +43,7 @@
   },
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self';"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; worker-src 'self'; connect-src 'self' data: blob: https://huggingface.co https://*.huggingface.co https://hf.co https://*.hf.co; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self'; form-action 'none'; base-uri 'none';"
   },
 
   "cross_origin_opener_policy": {
