@@ -2,6 +2,8 @@
 
 A Chrome extension that runs a 3.8B language model, an embedding model, a cross-encoder reranker and speech recognition on your own GPU, inside the browser, and answers questions from your documents. After the one-time model download nothing leaves the machine, and the extension logs its own network requests so you can check that instead of trusting it.
 
+![How EdgeAI works: model files download once from huggingface.co, your files are indexed on your GPU, and answers cite their sources with no further network requests](docs/how-it-works.svg)
+
 ![Ask a question, get a sourced answer, open the Privacy tab: the network log holds only model downloads](store-assets/demo-trust-proof.gif)
 
 ## What it does
@@ -15,7 +17,7 @@ A Chrome extension that runs a 3.8B language model, an embedding model, a cross-
 
 ## Install
 
-Chrome Web Store: pending review. Until then, from source:
+Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/ccahmgiiajohemnecejcnnibdhchgcpk), or build it from source:
 
 ```
 git clone https://github.com/kamalkalwa/EdgeAI
