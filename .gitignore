@@ -17,3 +17,7 @@ store-assets/popup-*.png
 # business planning notes, kept local
 docs/strategy.md
 docs/CUSTOMER-ACQUISITION-PLAYBOOK.md
+# voice end-to-end test: Chrome profile, generated clips, results
+extension/e2e/.cache/
+# your own voice recordings for the voice test; commit them only if you want them public
+extension/e2e/voice/recordings/

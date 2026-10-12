@@ -1,0 +1,12 @@
+[
+  { "name": "us-samantha", "voice": "Samantha", "text": "What are the main points of the article I saved about local language models and privacy?" },
+  { "name": "in-rishi", "voice": "Rishi", "text": "Summarize this page in three bullet points and tell me what the author recommends." },
+  { "name": "in-aman", "voice": "Aman", "text": "Find my notes about the meeting with the design team last Thursday." },
+  { "name": "in-tara", "voice": "Tara", "text": "Explain how the attention mechanism works, and keep the answer short." },
+  { "name": "uk-daniel", "voice": "Daniel", "text": "Remind me what the report said about rainfall in Rajasthan this year." },
+  { "name": "au-karen", "voice": "Karen", "text": "Search my bookmarks for anything about running language models in the browser." },
+  { "name": "ie-moira", "voice": "Moira", "text": "Can you compare the two PDFs I imported and list where they disagree?" },
+  { "name": "in-rishi-pause", "voice": "Rishi", "text": "Draft a short reply to this email. [[slnc 1000]] Say that I can meet on Monday afternoon." },
+  { "name": "us-samantha-long", "voice": "Samantha", "text": "I am trying to decide between two laptops for local AI work. One has more memory and the other has a faster graphics card. Which one matters more for running a model like this one?" },
+  { "name": "in-tara-pause", "voice": "Tara", "text": "Note that the invoice from the printer is due on Friday [[slnc 800]] and it needs a purchase order number." }
+]

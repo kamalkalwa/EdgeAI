@@ -747,6 +747,10 @@ chrome.runtime.onMessage.addListener(
     const { type, payload, requestId } = message;
 
     switch (type) {
+      case 'PING':
+        sendResponse({ pong: true });
+        return false;
+
       case 'LOAD_MODEL':
         initialize()
           .then(() => sendResponse({ type: 'MODEL_READY' }))

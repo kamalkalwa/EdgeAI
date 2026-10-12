@@ -12,6 +12,7 @@ export type MessageType =
   | 'INDEX_ERROR'
   | 'SEARCH'
   | 'SEARCH_RESULTS'
+  | 'PING'               // service worker → offscreen: is your listener up yet?
   | 'GET_STATUS'
   | 'STATUS'
   | 'LOAD_MODEL'
