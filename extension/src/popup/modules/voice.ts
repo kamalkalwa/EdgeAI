@@ -11,7 +11,7 @@ import { $, btnVoice, chatInput } from './dom';
 import { appendMessage, sendChat } from './chat';
 
 let voiceActive = false;
-let voiceModelsLoading = false;
+let voiceStarting = false;
 let voiceRecordStart = 0;
 let onDeviceSession: OnDeviceSpeechSession | null = null;
 
@@ -22,13 +22,18 @@ function resetVoiceUI(): void {
   btnVoice.title = 'Voice input (click to record)';
   voiceIndicator.classList.remove('active');
   voiceActive = false;
-  voiceModelsLoading = false;
+  voiceStarting = false;
   onDeviceSession = null;
+}
+
+function showStarting(): void {
+  btnVoice.classList.add('voice-loading');
+  voiceStarting = true;
 }
 
 function showRecording(): void {
   btnVoice.classList.remove('voice-loading');
-  voiceModelsLoading = false;
+  voiceStarting = false;
 
   btnVoice.classList.add('recording', 'active');
   btnVoice.title = 'Stop recording';
@@ -86,6 +91,12 @@ async function startOnDevice(lang: string): Promise<void> {
         resetVoiceUI();
         appendMessage('system-notice', err.message);
       },
+      // Chrome said it could, then refused: Moonshine takes this one.
+      onRefused: () => {
+        resetVoiceUI();
+        showStarting();
+        void startMoonshine();
+      },
     });
   } catch (err) {
     console.warn('[EdgeAI popup] On-device voice start failed:', err);
@@ -115,8 +126,7 @@ async function startMoonshine(): Promise<void> {
 }
 
 async function startVoice(): Promise<void> {
-  btnVoice.classList.add('voice-loading');
-  voiceModelsLoading = true;
+  showStarting();
 
   // Before any download: no point fetching a speech model without a mic.
   if (!(await micGranted())) {
@@ -137,7 +147,7 @@ async function startVoice(): Promise<void> {
 
 export function initVoiceListeners(): void {
   btnVoice.addEventListener('click', async () => {
-    if (voiceModelsLoading) return;
+    if (voiceStarting) return;
 
     if (!voiceActive) {
       await startVoice();

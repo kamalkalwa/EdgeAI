@@ -2,7 +2,7 @@
  * Voice input, end to end: real Chrome, the built extension, the popup's own
  * mic button, and a fake microphone playing recorded speech.
  *
- *   npm run test:voice        quick run, about 3 minutes
+ *   npm run test:voice        quick run, about 4 minutes
  *   npm run test:voice:full   every clip, clean and noisy, Chrome vs Moonshine
  *
  * Clips are the phrases in voice/phrases.json spoken by macOS voices, plus any
@@ -168,13 +168,15 @@ describe('Chrome on-device speech: other paths', () => {
   });
 
   test('asks for the mic in a tab, before downloading anything, when it is not allowed yet', async () => {
-    const { browser, page, close } = await openPopup({ grantMic: false, freshProfile: true });
+    const stub = { available: 'downloadable', install: true };
+    const { browser, page, close } = await openPopup({ grantMic: false, freshProfile: true, stub });
     try {
       const grantTab = browser.waitForTarget((tg) => tg.url().includes('src/mic-grant/mic-grant.html'), { timeout: 15_000 });
       const r = await useMic(page);
       await grantTab;
       assert.ok(r.notices.some((n) => n.includes('grant microphone access')), `notices: ${r.notices}`);
       assert.equal(r.recAt, null, 'started recording without permission');
+      assert.deepEqual(r.installCalls, [], 'downloaded a language pack first');
       assert.ok(!r.messages.includes('VOICE_START'));
     } finally {
       await close();
@@ -199,6 +201,25 @@ describe('Moonshine fallback', () => {
     assert.equal(r.installCalls.length, 1);
     assert.equal(r.engine, 'moonshine');
     assert.ok(r.sent && r.wer <= MAX_MOONSHINE_CLIP_WER, `heard "${r.text}"`);
+  });
+
+  test('takes over when Chrome refuses on-device recognition after saying it could', async (t) => {
+    const r = await transcribe(byName('us-samantha'), { stub: { refuseWith: 'service-not-allowed' } });
+    t.diagnostic(describeRun(r));
+    assert.deepEqual(r.notices, []);
+    assert.equal(r.engine, 'moonshine');
+    assert.ok(r.sent && r.wer <= MAX_MOONSHINE_CLIP_WER, `heard "${r.text}"`);
+  });
+
+  test('says so, instead of "Listening…", when VOICE_START gets no answer', async () => {
+    const { page, close } = await openPopup({ stub: { ...unavailable, voiceStartReply: null } });
+    try {
+      const r = await useMic(page, { timeoutMs: 15_000 });
+      assert.equal(r.recAt, null, 'showed recording without a recording');
+      assert.deepEqual(r.notices, ['Could not start voice input. Please try again.']);
+    } finally {
+      await close();
+    }
   });
 
   test('answers three questions in a row in one popup', (t) => askThreeTimes(t, byName('in-aman'), { stub: unavailable, engine: 'moonshine' }));

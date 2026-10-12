@@ -35,24 +35,16 @@ async function ensureOffscreenDocument(): Promise<void> {
 
   if (!existing) {
     offscreenListening = false;
-    // Prevent race condition if multiple messages arrive simultaneously
-    if (creatingOffscreen) {
-      await creatingOffscreen;
-    } else {
-      creatingOffscreen = chrome.offscreen.createDocument({
-        url: OFFSCREEN_URL,
-        reasons: [
-          chrome.offscreen.Reason.AUDIO_PLAYBACK,    // keeps it alive during voice
-          chrome.offscreen.Reason.USER_MEDIA,         // mic access for VAD
-        ],
-        justification: 'Run WebGPU ML inference (LLM, embeddings, ASR) outside of service worker context',
-      });
-      try {
-        await creatingOffscreen;
-      } finally {
-        creatingOffscreen = null;
-      }
-    }
+    // One creation, however many messages arrive while it runs
+    creatingOffscreen ??= chrome.offscreen.createDocument({
+      url: OFFSCREEN_URL,
+      reasons: [
+        chrome.offscreen.Reason.AUDIO_PLAYBACK,    // keeps it alive during voice
+        chrome.offscreen.Reason.USER_MEDIA,         // mic access for VAD
+      ],
+      justification: 'Run WebGPU ML inference (LLM, embeddings, ASR) outside of service worker context',
+    }).finally(() => { creatingOffscreen = null; });
+    await creatingOffscreen;
   }
 
   await waitForOffscreenListener();

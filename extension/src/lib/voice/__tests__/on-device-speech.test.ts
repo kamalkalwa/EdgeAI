@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 function callbacks() {
-  return { onPartial: vi.fn(), onFinal: vi.fn(), onError: vi.fn() };
+  return { onPartial: vi.fn(), onFinal: vi.fn(), onError: vi.fn(), onRefused: vi.fn() };
 }
 
 async function started(cb = callbacks()) {
@@ -163,13 +163,35 @@ describe('OnDeviceSpeechSession', () => {
     expect(cb.onFinal).toHaveBeenCalledWith('Summarize this');
   });
 
-  it('reports a blocked mic in words the popup sends to the mic-grant tab', async () => {
+  it('reports a blocked mic once, as a microphone problem', async () => {
     const { rec, cb } = await started();
     rec.onerror?.({ error: 'not-allowed' });
     rec.end();
     expect(cb.onError).toHaveBeenCalledTimes(1);
     expect(cb.onError.mock.calls[0]![0].message).toMatch(/Microphone access denied/);
     expect(cb.onFinal).not.toHaveBeenCalled();
+  });
+
+  it.each(['service-not-allowed', 'language-not-supported'])(
+    'hands over to another engine when Chrome refuses on-device recognition (%s)',
+    async (error) => {
+      const { rec, cb } = await started();
+      rec.onerror?.({ error });
+      rec.end();
+      expect(cb.onRefused).toHaveBeenCalledTimes(1);
+      expect(cb.onError).not.toHaveBeenCalled();
+      expect(cb.onFinal).not.toHaveBeenCalled();
+      expect(track.stop).toHaveBeenCalled();
+    },
+  );
+
+  it('reports a refusal as an error once words were heard', async () => {
+    const { rec, cb } = await started();
+    rec.emit(result('Summarize'));
+    rec.onerror?.({ error: 'service-not-allowed' });
+    rec.end();
+    expect(cb.onRefused).not.toHaveBeenCalled();
+    expect(cb.onError).toHaveBeenCalledTimes(1);
   });
 
   it('releases the mic when Chrome refuses to start', async () => {

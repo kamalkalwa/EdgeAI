@@ -5,9 +5,10 @@
  * fail rather than send audio to its cloud service. Each language needs a
  * one-time download that Chrome fetches itself and shares across all sites.
  *
- * The popup falls back to Moonshine (offscreen document) when this reports
- * 'unsupported': older Chrome, Chromium builds without the recognizer, or a
- * language Chrome can't do on-device.
+ * The popup falls back to Moonshine (offscreen document) when
+ * onDeviceSupport() says 'unsupported' (older Chrome, Chromium builds without
+ * the recognizer, a language Chrome can't do on-device) and when a session
+ * reports onRefused.
  */
 
 type Availability = 'available' | 'downloadable' | 'downloading' | 'unavailable';
@@ -91,15 +92,17 @@ export function joinResults(results: ArrayLike<RecognitionResult>): string {
   return parts.join(' ');
 }
 
+// Chrome refusing to recognize on-device although available() said it could:
+// a policy, a Chromium build that turns it off, or a missing language pack.
+// Neither is about the microphone.
+const REFUSALS = new Set(['service-not-allowed', 'language-not-supported']);
+
 function describeError(code: string): string {
   switch (code) {
     case 'not-allowed':
-    case 'service-not-allowed':
       return 'Microphone access denied. Allow microphone in Chrome site settings for this extension.';
     case 'audio-capture':
       return 'No microphone found. Check that one is connected and not in use by another app.';
-    case 'language-not-supported':
-      return "Chrome's speech model for this language isn't installed. Try voice input again.";
     default:
       return `Voice input stopped (${code}). Please try again.`;
   }
@@ -109,10 +112,14 @@ export interface SpeechCallbacks {
   onPartial: (text: string) => void;
   onFinal: (text: string) => void;
   onError: (error: Error) => void;
+  /** Chrome refused on-device recognition before hearing anything: use another engine. */
+  onRefused: () => void;
 }
 
-// Same feel as the Moonshine session: stop 2 s after the last word,
-// give up if nothing is heard in the first 5 s.
+// Stop 2 s after the last word, as the Moonshine session does. Give up if no
+// words arrive in the first 5 s; Moonshine allows 3.5 s, but its voice
+// detector fires as soon as speech starts, and Chrome's first words come
+// about 0.8 s later.
 const SILENCE_AFTER_SPEECH_MS = 2000;
 const NO_SPEECH_TIMEOUT_MS = 5000;
 
@@ -153,7 +160,8 @@ export class OnDeviceSpeechSession {
       // Both end the session; onend reports them.
       if (e.error === 'aborted' || e.error === 'no-speech') return;
       this.failed = true;
-      callbacks.onError(new Error(describeError(e.error)));
+      if (REFUSALS.has(e.error) && !this.text) callbacks.onRefused();
+      else callbacks.onError(new Error(describeError(e.error)));
     };
     recognition.onend = () => {
       this.release();

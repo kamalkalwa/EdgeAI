@@ -221,11 +221,11 @@ Chrome's on-device recognizer (Chrome 139+) does the work when it can; Moonshine
 
 ```bash
 cd extension
-npm run test:voice        # about 3 minutes
+npm run test:voice        # about 4 minutes
 npm run test:voice:full   # every clip, clean and noisy, Chrome vs Moonshine, about 10 minutes
 ```
 
-This builds the extension, starts Google Chrome with it, and clicks the popup's mic button while a fake microphone plays speech: phrases in `e2e/voice/phrases.json` read by macOS voices (US, Indian, UK, Australian, Irish), clean and with background noise. It checks the transcript (word error rate), that words appear while you speak, that the text is sent about 2 seconds after you stop, stopping by hand, silence, three questions in a row, the real toolbar popup and the side panel, the language-pack download, the mic-permission tab, and both Moonshine fallbacks. Results are saved in `e2e/.cache/`.
+This builds the extension, starts Google Chrome with it, and clicks the popup's mic button while a fake microphone plays speech: phrases in `e2e/voice/phrases.json` read by macOS voices (US, Indian, UK, Australian, Irish), clean and with background noise. It checks the transcript (word error rate), that words appear while you speak, that the text is sent about 2 seconds after you stop, stopping by hand, silence, three questions in a row, the real toolbar popup and the side panel, the language-pack download, the mic-permission tab, a voice start that gets no answer, and the Moonshine fallbacks (Chrome can't recognize on-device, can't download the language, or refuses at start). Results are saved in `e2e/.cache/`.
 
 To include your own voice, record the phrases once with `npm run record:voice` (needs ffmpeg). The recordings stay in `e2e/voice/recordings/`, which git ignores, and every later run tests them too.
 

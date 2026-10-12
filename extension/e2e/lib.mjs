@@ -6,8 +6,9 @@
  * - Every extension page gets a stub before its scripts run. It blocks
  *   LOAD_MODEL, because each launch reinstalls the extension and the
  *   first-run tab would otherwise start loading the language model mid-test.
- *   It records the messages the page sends and can override
- *   SpeechRecognition.available/install to reach the fallback paths.
+ *   It records the messages the page sends, and can override
+ *   SpeechRecognition.available/install, make the recognizer refuse at start,
+ *   or replace the reply to VOICE_START, to reach the fallback paths.
  * - The profile in .cache/profile is kept between runs: Chrome stores its
  *   speech language pack and EdgeAI's cached Moonshine model there.
  */
@@ -223,6 +224,7 @@ function installStubs(stub) {
   chrome.runtime.sendMessage = (message, ...rest) => {
     sent.push(message?.type);
     if (message?.type === 'LOAD_MODEL') return Promise.resolve(null);
+    if (message?.type === 'VOICE_START' && 'voiceStartReply' in stub) return Promise.resolve(stub.voiceStartReply);
     const reply = send(message, ...rest);
     const t0 = performance.now();
     reply?.then?.(
@@ -237,6 +239,15 @@ function installStubs(stub) {
     SR.install = (options) => {
       installCalls.push(options);
       return Promise.resolve(stub.install);
+    };
+  }
+  if (SR && stub.refuseWith) {
+    // What Chrome does when it won't recognize on-device after all: an error, then end.
+    SR.prototype.start = function () {
+      setTimeout(() => {
+        this.onerror?.({ error: stub.refuseWith });
+        this.onend?.();
+      }, 100);
     };
   }
 }
