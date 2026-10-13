@@ -24,34 +24,47 @@ import { getAllBookmarks } from '@/lib/connectors/bookmarks';
 
 const OFFSCREEN_URL = chrome.runtime.getURL('src/offscreen/offscreen.html');
 let creatingOffscreen: Promise<void> | null = null;
+// Set once the current offscreen document has answered a PING.
+let offscreenListening = false;
 
 // ─── Offscreen Document Lifecycle ─────────────────────────────────────────────
 
 async function ensureOffscreenDocument(): Promise<void> {
-  // Check if already exists
   const existing = await chrome.offscreen.hasDocument?.().catch(() => false);
-  if (existing) return;
+  if (existing && offscreenListening) return;
 
-  // Prevent race condition if multiple messages arrive simultaneously
-  if (creatingOffscreen) {
+  if (!existing) {
+    offscreenListening = false;
+    // One creation, however many messages arrive while it runs
+    creatingOffscreen ??= chrome.offscreen.createDocument({
+      url: OFFSCREEN_URL,
+      reasons: [
+        chrome.offscreen.Reason.AUDIO_PLAYBACK,    // keeps it alive during voice
+        chrome.offscreen.Reason.USER_MEDIA,         // mic access for VAD
+      ],
+      justification: 'Run WebGPU ML inference (LLM, embeddings, ASR) outside of service worker context',
+    }).finally(() => { creatingOffscreen = null; });
     await creatingOffscreen;
-    return;
   }
 
-  creatingOffscreen = chrome.offscreen.createDocument({
-    url: OFFSCREEN_URL,
-    reasons: [
-      chrome.offscreen.Reason.AUDIO_PLAYBACK,    // keeps it alive during voice
-      chrome.offscreen.Reason.USER_MEDIA,         // mic access for VAD
-    ],
-    justification: 'Run WebGPU ML inference (LLM, embeddings, ASR) outside of service worker context',
-  });
+  await waitForOffscreenListener();
+  offscreenListening = true;
+}
 
-  try {
-    await creatingOffscreen;
-  } finally {
-    creatingOffscreen = null;
+// The document exists, and hasDocument() says so, before its scripts have
+// added their message listener: about 100 ms on a fast Mac. A message sent in
+// that window gets no answer at all (a voice start would look like success,
+// a LOAD_MODEL would be lost), so wait until a PING is answered.
+const OFFSCREEN_START_TIMEOUT_MS = 30_000;
+
+async function waitForOffscreenListener(): Promise<void> {
+  const deadline = Date.now() + OFFSCREEN_START_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const pong = await chrome.runtime.sendMessage({ type: 'PING', _target: 'offscreen' }).catch(() => null);
+    if (pong) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  throw new Error('The offscreen document did not start');
 }
 
 // ─── Trust Panel Logs ────────────────────────────────────────────────────────

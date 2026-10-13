@@ -13,6 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "test:voice": "npm run build:prod && node --test-reporter=spec e2e/voice.e2e.mjs",
+    "test:voice:full": "npm run build:prod && VOICE_E2E_FULL=1 node --test-reporter=spec e2e/voice.e2e.mjs",
+    "record:voice": "node e2e/record-voice.mjs",
     "fetch:model-libs": "node scripts/fetch-model-libs.mjs"
   },
   "dependencies": {

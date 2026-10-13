@@ -213,45 +213,29 @@ EdgeAI has no content script. It can read a tab only after you invoke it there: 
 
 ---
 
-## 11. Voice Input (Moonshine ASR)
+## 11. Voice Input
 
-### Test: Short command
+Chrome's on-device recognizer (Chrome 139+) does the work when it can; Moonshine in the offscreen document is the fallback.
 
-1. Click the **mic button**
-2. **Expected:** Button state transitions: idle → voice-loading → recording (pulse animation)
-3. Say: "What is machine learning?"
-4. Pause for ~1 second
-5. **Expected:**
-   - Text appears in the input field ~430ms after pause (400ms silence threshold + ~30ms inference)
-   - **No flickering** — text appears once and stays stable
-   - Auto-stop triggers ~2 seconds after the segment completes
-   - Transcript is auto-submitted as a chat message
+### Automated
 
-### Test: Multi-segment
+```bash
+cd extension
+npm run test:voice        # about 4 minutes
+npm run test:voice:full   # every clip, clean and noisy, Chrome vs Moonshine, about 10 minutes
+```
 
-1. Click mic → say "Hello" → pause 1 second → say "how are you" → click stop
-2. **Expected:**
-   - "Hello" appears first, then grows to "Hello how are you"
-   - Past segments never change (append-only)
-   - No flickering or re-transcription of "Hello" when "how are you" is added
+This builds the extension, starts Google Chrome with it, and clicks the popup's mic button while a fake microphone plays speech: phrases in `e2e/voice/phrases.json` read by macOS voices (US, Indian, UK, Australian, Irish), clean and with background noise. It checks the transcript (word error rate), that words appear while you speak, that the text is sent about 2 seconds after you stop, stopping by hand, silence, three questions in a row, the real toolbar popup and the side panel, the language-pack download, the mic-permission tab, a voice start that gets no answer, and the Moonshine fallbacks (Chrome can't recognize on-device, can't download the language, or refuses at start). Results are saved in `e2e/.cache/`.
 
-### Test: Long continuous speech (>5 seconds)
+To include your own voice, record the phrases once with `npm run record:voice` (needs ffmpeg). The recordings stay in `e2e/voice/recordings/`, which git ignores, and every later run tests them too.
 
-1. Click mic → speak continuously for 8+ seconds without pausing
-2. **Expected:**
-   - A partial transcript appears around the 5-second mark (long-speech feedback)
-   - Periodic updates every ~3 seconds
-   - When you pause, the final stable text replaces the partial
+### By hand (real microphone)
 
-### Test: No speech
+The automated test uses a fake microphone, so after changes to voice code try the real one once:
 
-1. Click mic → say nothing → wait
-2. **Expected:** "No speech detected" after ~3.5 seconds
-
-### Test: Quick stop
-
-1. Click mic → immediately click stop
-2. **Expected:** "No speech detected" (recording too short for any speech segment)
+1. Click the toolbar icon, click the **mic button**, and say: "What is machine learning?"
+2. **Expected:** words appear in the input as you speak; about 2 seconds after you stop, the message is sent.
+3. Click mic and say nothing. **Expected:** "No speech detected" after about 5 seconds.
 
 ---
 
