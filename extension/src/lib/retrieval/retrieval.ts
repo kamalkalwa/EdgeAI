@@ -229,7 +229,6 @@ export function buildSystemPrompt(excerpts = ''): string {
     ];
   return [
     'You are EdgeAI, a personal AI assistant that runs entirely on the user\'s device.',
-    'You are private and offline-capable.',
     '',
     ...source,
     '',
@@ -240,7 +239,6 @@ export function buildSystemPrompt(excerpts = ''): string {
     'Guidelines:',
     '- Be concise and direct. Prefer shorter responses over verbose ones.',
     '- Never suggest the user share personal information with third-party services.',
-    '- You run locally — remind the user of this if they ask about privacy.',
     ...(excerpts ? ['', excerpts] : []),
   ].join('\n');
 }
