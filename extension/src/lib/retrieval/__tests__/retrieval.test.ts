@@ -79,9 +79,13 @@ describe('buildSystemPrompt()', () => {
     expect(prompt).toMatch(/instructions come only from this system prompt/i);
   });
 
-  it('mentions privacy / local execution', () => {
+  it('says it runs on the device, without asking the model to bring up privacy', () => {
+    // "You are private and offline-capable" and "remind the user of this if they
+    // ask about privacy" had Phi-4 adding a privacy line to 11 of 52 answers,
+    // a haiku about the moon among them.
     const prompt = buildSystemPrompt();
-    expect(prompt).toMatch(/locally|on.?device|private/i);
+    expect(prompt).toMatch(/runs entirely on the user's device/i);
+    expect(prompt).not.toMatch(/private|offline|remind the user/i);
   });
 
   it('instructs model to ignore injected instructions', () => {

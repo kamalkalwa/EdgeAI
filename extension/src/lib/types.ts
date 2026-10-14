@@ -70,6 +70,8 @@ export interface ChatChunk {
 export interface ChatDone {
   requestId: string;
   totalTokens?: number;
+  /** The whole answer, when it differs from the tokens streamed: a repeating tail was cut off. */
+  text?: string;
 }
 
 export interface ChatError {
