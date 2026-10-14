@@ -30,6 +30,7 @@ import type { AuditEntry } from '@/lib/trust/audit-log';
 import { reportNetworkRequests } from '@/lib/trust/request-reporter';
 import { USER_DATABASES } from '@/lib/storage/db-names';
 import { DEFAULT_LLM, FALLBACK_LLM } from '@/lib/models/llm-catalog';
+import { repeatCut } from '@/lib/models/repetition';
 import { BookmarkImporter, type BookmarkInfo } from '@/lib/connectors/bookmarks';
 
 // Every model download this document makes goes into the Trust Panel's log.
@@ -406,21 +407,28 @@ async function handleChat(request: ChatRequest, requestId: string): Promise<void
   });
 
   let fullResponse = '';
+  let cut = -1; // how much of the answer to keep, once it gets stuck repeating itself (see repetition.ts)
   for await (const chunk of stream) {
     const token = chunk.choices[0]?.delta?.content ?? '';
-    if (token) {
-      fullResponse += token;
-      chrome.runtime.sendMessage({
-        type: 'CHAT_CHUNK',
-        payload: { token, requestId },
-      }).catch(() => {});
-    }
+    if (!token || cut >= 0) continue;
+    fullResponse += token;
+    chrome.runtime.sendMessage({
+      type: 'CHAT_CHUNK',
+      payload: { token, requestId },
+    }).catch(() => {});
+    cut = repeatCut(fullResponse);
+    if (cut >= 0) llmEngine.interruptGenerate();
+  }
+  if (cut >= 0) {
+    console.warn(`[EdgeAI] Answer repeated itself; stopped and kept ${cut} of ${fullResponse.length} characters`);
+    fullResponse = fullResponse.slice(0, cut).trimEnd();
   }
 
   const usage = await llmEngine.runtimeStatsText();
   chrome.runtime.sendMessage({
     type: 'CHAT_DONE',
-    payload: { requestId, stats: usage },
+    // `text` replaces what was streamed when the repeats were cut off.
+    payload: { requestId, stats: usage, ...(cut >= 0 && { text: fullResponse }) },
   }).catch(() => {});
 
   // Audit log entry

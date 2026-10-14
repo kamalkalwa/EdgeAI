@@ -2,7 +2,7 @@
  * Chat — message rendering, streaming, send logic, and TTS speak buttons.
  */
 
-import type { Message } from '@/lib/types';
+import type { ChatDone, Message } from '@/lib/types';
 import { markdownToHtml } from '@/lib/markdown';
 import { speak, stop as ttsStop, isSpeaking } from '@/lib/voice/tts';
 import { state, currentSettings } from './state';
@@ -178,8 +178,10 @@ export async function sendChat(): Promise<void> {
     }
 
     if (message.type === 'CHAT_DONE') {
-      const { requestId: rid } = message.payload as { requestId: string };
+      const { requestId: rid, text } = message.payload as ChatDone;
       if (rid !== requestId) return;
+      // The answer got stuck repeating itself; this is it without the repeats.
+      if (text !== undefined) assistantContent = text;
 
       state.conversationHistory.push({ role: 'assistant', content: assistantContent });
       assistantBubble.innerHTML = renderMarkdown(assistantContent);
