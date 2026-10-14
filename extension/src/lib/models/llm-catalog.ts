@@ -13,6 +13,8 @@ export interface LlmModel {
   id: string;
   label: string;
   download: string;
+  /** What web-llm downloads: the weight shards, tensor-cache.json, mlc-chat-config.json and tokenizer.json. */
+  bytes: number;
 }
 
 export const DEFAULT_LLM: LlmModel = models.default;

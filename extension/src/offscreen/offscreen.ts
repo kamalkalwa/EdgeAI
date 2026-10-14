@@ -29,7 +29,8 @@ import { nanoid } from '@/lib/utils';
 import type { AuditEntry } from '@/lib/trust/audit-log';
 import { reportNetworkRequests } from '@/lib/trust/request-reporter';
 import { USER_DATABASES } from '@/lib/storage/db-names';
-import { DEFAULT_LLM, FALLBACK_LLM } from '@/lib/models/llm-catalog';
+import { DEFAULT_LLM, FALLBACK_LLM, findLlm } from '@/lib/models/llm-catalog';
+import { notEnoughSpace } from '@/lib/models/disk-space';
 import { repeatCut } from '@/lib/models/repetition';
 import { BookmarkImporter, type BookmarkInfo } from '@/lib/connectors/bookmarks';
 
@@ -130,6 +131,42 @@ async function seedModelLibCache(modelId: string): Promise<void> {
   console.log(`[EdgeAI] Seeded ${lib.file} (${(body.byteLength / 1e6).toFixed(1)} MB) from the extension package`);
 }
 
+// ─── Disk Space ──────────────────────────────────────────────────────────────
+
+const MODEL_CACHE = 'webllm/model'; // cache scope web-llm keeps model weights and tokenizer in
+
+/** Thrown instead of starting a download the disk has no room for; the message is for the user. */
+class NotEnoughSpaceError extends Error {}
+
+/** Bytes of `modelId` web-llm has yet to download. */
+async function bytesToDownload(modelId: string): Promise<number> {
+  if (await webllm.hasModelInCache(modelId)) return 0;
+  const model = findLlm(modelId);
+  const record = webllm.prebuiltAppConfig.model_list.find((m) => m.model_id === modelId);
+  if (!model || !record) return 0;
+  // A download that stopped partway leaves the files it finished in the cache.
+  const prefix = record.model.replace(/\/?$/, '/');
+  const cache = await caches.open(MODEL_CACHE);
+  let cached = 0;
+  for (const request of await cache.keys()) {
+    if (!request.url.startsWith(prefix)) continue;
+    cached += Number((await cache.match(request))?.headers.get('content-length')) || 0;
+  }
+  return Math.max(0, model.bytes - cached);
+}
+
+/** What to tell the user when the disk has no room to download `modelId`; null otherwise, or when Chrome won't say. */
+async function diskSpaceProblem(modelId: string): Promise<string | null> {
+  try {
+    const { quota, usage } = await navigator.storage.estimate();
+    if (quota === undefined || usage === undefined) return null;
+    return notEnoughSpace(quota - usage, await bytesToDownload(modelId));
+  } catch (err) {
+    console.warn('[EdgeAI] Could not check free disk space:', err);
+    return null;
+  }
+}
+
 // ─── Global State ─────────────────────────────────────────────────────────────
 
 let llmEngine: webllm.MLCEngine | null = null;
@@ -226,13 +263,16 @@ async function initStoresAndEmbeddings(): Promise<void> {
 async function initialize(): Promise<void> {
   if (isInitializing || llmEngine) return;
   isInitializing = true;
+  let modelId = LLM_MODEL_ID; // until selectModelForHardware() picks
 
   try {
     // Stores/embeddings may already be loaded by the auto-init IIFE — skip if so
     await initStoresAndEmbeddings();
 
     // Load LLM — this is the big download (2.2GB first time, Cache API thereafter)
-    const modelId = await selectModelForHardware();
+    modelId = await selectModelForHardware();
+    const noRoom = await diskSpaceProblem(modelId);
+    if (noRoom) throw new NotEnoughSpaceError(noRoom);
     // Throws on a broken build → MODEL_ERROR via the catch below. Never let web-llm download code.
     await seedModelLibCache(modelId);
     llmEngine = await withRetry(
@@ -258,14 +298,28 @@ async function initialize(): Promise<void> {
     // Pre-load voice models in background (non-blocking) so first mic click is instant
     ensureVoiceModels().catch(console.warn);
   } catch (error) {
-    const rawMsg = error instanceof Error ? error.message : 'Initialization failed';
-    initError = humanizeError(rawMsg);
+    initError = await explainLoadError(error, modelId);
     broadcastStatus({ type: 'MODEL_ERROR', payload: { error: initError, canRetry: true } });
     throw error;
   } finally {
     isInitializing = false;
   }
 }
+
+/**
+ * The message for a failed load. A download stopped by a full disk fails like
+ * a network error, so unless the error is about WebGPU or memory, the disk is
+ * checked before blaming the connection.
+ */
+async function explainLoadError(error: unknown, modelId: string): Promise<string> {
+  const raw = error instanceof Error ? error.message : 'Initialization failed';
+  if (error instanceof NotEnoughSpaceError) return raw;
+  const message = humanizeError(raw);
+  if (message !== raw && message !== DOWNLOAD_FAILED) return message;
+  return (await diskSpaceProblem(modelId)) ?? message;
+}
+
+const DOWNLOAD_FAILED = 'Could not download model files. Check your internet connection and retry — files are cached after first download.';
 
 /** Translate cryptic WASM/WebGPU errors into user-friendly messages. */
 function humanizeError(raw: string): string {
@@ -279,7 +333,7 @@ function humanizeError(raw: string): string {
     return 'Not enough memory to load the AI model. Try closing other tabs or applications and retry.';
   }
   if (raw.includes('network') || raw.includes('fetch')) {
-    return 'Could not download model files. Check your internet connection and retry — files are cached after first download.';
+    return DOWNLOAD_FAILED;
   }
   return raw;
 }
@@ -768,13 +822,9 @@ chrome.runtime.onMessage.addListener(
         _initPromise = null;
         broadcastStatus({ type: 'MODEL_PROGRESS', payload: { model: 'embeddings', progress: 0 } });
         (async () => {
-          try {
-            await initStoresAndEmbeddings();
-            broadcastStatus({ type: 'MODEL_READY', payload: { model: 'embeddings_and_reranker' } });
-            await initialize();
-          } catch (retryErr) {
-            // Error is already broadcast by initialize() / humanizeError()
-            console.error('[EdgeAI] Retry failed:', retryErr);
+          // Both broadcast their own errors.
+          if (await startEmbeddings()) {
+            await initialize().catch((retryErr) => console.error('[EdgeAI] Retry failed:', retryErr));
           }
         })();
         sendResponse({ acknowledged: true });
@@ -897,20 +947,28 @@ chrome.runtime.onMessage.addListener(
 // ─── Auto-initialize on Load ───────────────────────────────────────────────────
 // Load stores and embeddings eagerly; LLM loads on demand (first LOAD_MODEL message).
 
-(async () => {
+/**
+ * Loads the stores and embedding models and tells the popup how it went. A
+ * retry used to stay on "Loading text understanding…" when this failed: only
+ * initialize() reported its errors.
+ */
+async function startEmbeddings(): Promise<boolean> {
   try {
     await initStoresAndEmbeddings();
     broadcastStatus({ type: 'MODEL_READY', payload: { model: 'embeddings_and_reranker' } });
+    return true;
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : String(err);
-    const friendly = humanizeError(rawMsg);
-    console.error('[EdgeAI offscreen] Init error:', rawMsg);
-    initError = friendly;
+    console.error('[EdgeAI offscreen] Init error:', err instanceof Error ? err.message : String(err));
+    // The language model downloads next, so a disk without room for it is the problem to report.
+    initError = await explainLoadError(err, await selectModelForHardware());
     broadcastStatus({
       type: 'MODEL_ERROR',
-      payload: { error: friendly, stage: 'embeddings', canRetry: true },
+      payload: { error: initError, stage: 'embeddings', canRetry: true },
     });
+    return false;
   }
-})();
+}
+
+void startEmbeddings();
 
 export {};

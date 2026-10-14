@@ -2,11 +2,13 @@
   "default": {
     "id": "Phi-4-mini-instruct-q4f16_1-MLC",
     "label": "Phi-4-mini-instruct (Q4)",
-    "download": "2.2 GB"
+    "download": "2.2 GB",
+    "bytes": 2173714975
   },
   "fallback": {
     "id": "Llama-3.2-1B-Instruct-q4f16_1-MLC",
     "label": "Llama-3.2-1B-Instruct (Q4)",
-    "download": "0.7 GB"
+    "download": "0.7 GB",
+    "bytes": 704397819
   }
 }
